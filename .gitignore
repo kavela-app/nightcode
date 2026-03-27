@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dashboard/dist/
+.env
+data/
+repos/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+/tmp/
+.DS_Store
+todelete/

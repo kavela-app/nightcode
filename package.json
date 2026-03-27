@@ -1,0 +1,55 @@
+{
+  "name": "nightcode",
+  "version": "0.1.0",
+  "description": "Your code ships while you dream. Run Claude Code tasks autonomously while you sleep.",
+  "private": true,
+  "type": "module",
+  "workspaces": ["dashboard"],
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc && npm run build:dashboard",
+    "build:server": "tsc",
+    "build:dashboard": "npm run build --workspace=dashboard",
+    "start": "node dist/index.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@hono/node-ws": "^1.1.0",
+    "better-sqlite3": "^11.7.0",
+    "cron-parser": "^4.9.0",
+    "drizzle-orm": "^0.38.0",
+    "hono": "^4.6.0",
+    "luxon": "^3.5.0",
+    "pino": "^9.5.0",
+    "pino-pretty": "^13.0.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/luxon": "^3.4.2",
+    "@types/node": "^22.10.0",
+    "drizzle-kit": "^0.30.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shubhamsaboo/awesome-llm-apps.git",
+    "directory": "nightcode"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai",
+    "automation",
+    "task-scheduler",
+    "developer-tools",
+    "overnight-coding"
+  ]
+}

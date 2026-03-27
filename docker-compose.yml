@@ -1,0 +1,24 @@
+services:
+  nightcode:
+    build: .
+    container_name: nightcode
+    restart: unless-stopped
+    ports:
+      - "${NIGHTCODE_PORT:-3777}:3777"
+    volumes:
+      - ./data:/data                                         # SQLite DB + logs
+      - ./repos:/repos                                       # Git workspaces
+      - ~/.ssh:/home/nightcode/.ssh:ro                       # GitHub SSH keys
+      - nightcode-claude:/home/nightcode/.claude             # Claude Code login (persisted)
+    environment:
+      - TZ=${TZ:-UTC}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - NIGHTCODE_AUTH_TOKEN=${NIGHTCODE_AUTH_TOKEN:-}
+      - KAVELA_API_KEY=${KAVELA_API_KEY:-}
+      - NIGHTCODE_MAX_CONCURRENT=${NIGHTCODE_MAX_CONCURRENT:-2}
+    env_file:
+      - path: .env
+        required: false
+
+volumes:
+  nightcode-claude:                                          # Survives container rebuilds
