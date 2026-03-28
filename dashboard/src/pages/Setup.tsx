@@ -5,7 +5,7 @@ interface SetupProps {
   onComplete: () => void;
 }
 
-type Step = "welcome" | "claude" | "github" | "kavela" | "repo" | "done";
+type Step = "welcome" | "claude" | "github" | "kavela" | "repo" | "access" | "done";
 
 export default function Setup({ onComplete }: SetupProps) {
   const [step, setStep] = useState<Step>("welcome");
@@ -35,6 +35,8 @@ export default function Setup({ onComplete }: SetupProps) {
   const [apiKey, setApiKey] = useState("");
   const [apiKeySubmitting, setApiKeySubmitting] = useState(false);
   const [apiKeyError, setApiKeyError] = useState("");
+  const [publicUrl, setPublicUrl] = useState("");
+  const [publicUrlSaved, setPublicUrlSaved] = useState(false);
 
   useEffect(() => {
     loadStatus();
@@ -128,7 +130,7 @@ export default function Setup({ onComplete }: SetupProps) {
     }
     try {
       await api.createRepo(repoForm);
-      setStep("done");
+      setStep("access");
     } catch (err) {
       setRepoError(err instanceof Error ? err.message : "Failed to add repo");
     }
@@ -158,7 +160,7 @@ export default function Setup({ onComplete }: SetupProps) {
         {/* Progress dots */}
         <div className="flex justify-center gap-2 mb-8">
           {(
-            ["welcome", "claude", "github", "kavela", "repo", "done"] as Step[]
+            ["welcome", "claude", "github", "kavela", "repo", "access", "done"] as Step[]
           ).map((s, i) => (
             <div
               key={s}
@@ -172,6 +174,7 @@ export default function Setup({ onComplete }: SetupProps) {
                         "github",
                         "kavela",
                         "repo",
+                        "access",
                         "done",
                       ].indexOf(step)
                     ? "bg-blue-500/40"
@@ -748,6 +751,80 @@ export default function Setup({ onComplete }: SetupProps) {
             </div>
           )}
 
+          {/* Public Access */}
+          {step === "access" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">Public Access</h2>
+                <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
+                  Optional
+                </span>
+              </div>
+              <p className="text-sm text-zinc-400">
+                Make nightcode accessible remotely so you can control it from
+                other devices, connect Lark bots, or call the agent API from
+                anywhere.
+              </p>
+
+              <div className="bg-zinc-800/50 rounded-lg p-3 text-xs text-zinc-400 space-y-2">
+                <p className="font-medium text-zinc-300">Setup with Tailscale (free):</p>
+                <p>1. Install Tailscale: <code className="bg-zinc-900 px-1 rounded">curl -fsSL https://tailscale.com/install.sh | sh</code></p>
+                <p>2. Enable Funnel: <code className="bg-zinc-900 px-1 rounded">tailscale funnel 3777</code></p>
+                <p>3. Copy the HTTPS URL below (e.g., <code className="bg-zinc-900 px-1 rounded">https://machine.tail1234.ts.net</code>)</p>
+                <p className="text-zinc-500 mt-1">
+                  Or use the Docker sidecar — see <code className="text-zinc-400">docker-compose.tailscale.yml</code>
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs text-zinc-500 block">
+                  Public URL
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="https://nightcode.your-tailnet.ts.net"
+                    value={publicUrl}
+                    onChange={(e) => { setPublicUrl(e.target.value); setPublicUrlSaved(false); }}
+                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-zinc-600"
+                  />
+                  {publicUrl && (
+                    <button
+                      onClick={async () => {
+                        await api.updateSettings({ nightcode_url: publicUrl.replace(/\/+$/, "") });
+                        setPublicUrlSaved(true);
+                      }}
+                      className="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 rounded-lg text-sm"
+                    >
+                      {publicUrlSaved ? "Saved!" : "Save"}
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-zinc-600">
+                  Used in PR backlinks, agent API, and Lark integration. Can be changed later in Settings.
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => setStep("repo")}
+                  className="px-4 py-2.5 text-sm text-zinc-400 hover:text-zinc-200"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={() => setStep("done")}
+                  className={publicUrlSaved
+                    ? "flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-lg text-sm font-medium"
+                    : "px-4 py-2.5 text-sm text-zinc-500 hover:text-zinc-300"
+                  }
+                >
+                  {publicUrlSaved ? "Next" : "Skip — keep local only"}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Done */}
           {step === "done" && (
             <div className="text-center space-y-4">
@@ -787,6 +864,12 @@ export default function Setup({ onComplete }: SetupProps) {
                 </p>
                 <p>
                   <span className="text-green-400">{"\u2713"}</span> Repo added
+                </p>
+                <p>
+                  <span className={publicUrlSaved ? "text-green-400" : "text-zinc-600"}>
+                    {publicUrlSaved ? "\u2713" : "\u2014"}
+                  </span>{" "}
+                  Public access{publicUrlSaved ? `: ${publicUrl}` : ""}
                 </p>
               </div>
 
