@@ -513,32 +513,43 @@ export default function Settings() {
           </button>
         </div>
 
-        {/* Nightcode URL */}
+        {/* Remote Access / Tailscale */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-3">
             <div>
               <h3 className="text-sm font-medium text-zinc-200">
-                Nightcode URL
+                Remote Access
               </h3>
               <p className="text-xs text-zinc-500 mt-0.5">
-                Set this to your Tailscale Funnel URL for remote access, Lark bots, and PR backlinks
+                Make nightcode accessible from anywhere via Tailscale
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              {nightcodeUrlSaved && (
-                <span className="text-xs text-green-400">Saved</span>
-              )}
-              <span
-                className={`text-xs px-2 py-0.5 rounded-full ${
-                  nightcodeUrl && nightcodeUrlStatus === "ok"
-                    ? "bg-green-900/30 text-green-400"
-                    : "bg-zinc-800 text-zinc-500"
-                }`}
-              >
-                {nightcodeUrl ? `Public: ${nightcodeUrl}` : "Local only (localhost:3777)"}
-              </span>
-            </div>
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full ${
+                nightcodeUrl && nightcodeUrlStatus === "ok"
+                  ? "bg-green-900/30 text-green-400"
+                  : "bg-zinc-800 text-zinc-500"
+              }`}
+            >
+              {nightcodeUrl ? "Public" : "Local only"}
+            </span>
           </div>
+
+          {!nightcodeUrl && (
+            <div className="bg-zinc-800/50 rounded-lg p-3 text-xs text-zinc-400 space-y-2 mb-3">
+              <p className="font-medium text-zinc-300">Quick setup with Tailscale (free):</p>
+              <div className="space-y-1.5 font-mono">
+                <p><span className="text-zinc-600 select-none">1.</span> <code className="text-zinc-300">curl -fsSL https://tailscale.com/install.sh | sh</code></p>
+                <p><span className="text-zinc-600 select-none">2.</span> <code className="text-zinc-300">tailscale up</code></p>
+                <p><span className="text-zinc-600 select-none">3.</span> <code className="text-zinc-300">tailscale funnel 3777</code></p>
+              </div>
+              <p className="text-zinc-500 mt-1">
+                Copy the HTTPS URL from the output and paste it below.
+                For Docker sidecar setup, see <code className="text-zinc-400">docker-compose.tailscale.yml</code>.
+              </p>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <input
               type="text"
@@ -551,14 +562,16 @@ export default function Settings() {
               onClick={saveNightcodeUrl}
               className="bg-zinc-700 hover:bg-zinc-600 text-white px-3 py-2 rounded text-sm"
             >
-              Save
+              {nightcodeUrlSaved ? "Saved!" : "Save"}
             </button>
           </div>
-          <p className="text-xs text-zinc-600 mt-2">
-            Used in PR backlinks and the Agent API endpoint. See{" "}
-            <code className="text-zinc-500">docker-compose.tailscale.yml</code>{" "}
-            for Tailscale sidecar setup.
-          </p>
+
+          {nightcodeUrl && (
+            <div className="mt-2 text-xs text-zinc-500 space-y-1">
+              <p>PR backlinks and Lark bots will use this URL.</p>
+              <p>Dashboard login required for remote access (token: <code className="text-zinc-400">data/.auth-token</code>).</p>
+            </div>
+          )}
         </div>
 
         {/* API Token */}

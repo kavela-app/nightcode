@@ -195,7 +195,12 @@ export async function executeWorkflow(
     notes: task.notes,
     nightcodeUrl,
     stepResults,
-    kavelaSkills: [],
+    kavelaSkills: (() => {
+      try {
+        const row = db.select().from(schema.settings).where(eq(schema.settings.key, `task_${taskId}_kavela_skills`)).get();
+        return row ? JSON.parse(row.value) : [];
+      } catch { return []; }
+    })(),
   };
 
   const repoContext: RepoContext = {

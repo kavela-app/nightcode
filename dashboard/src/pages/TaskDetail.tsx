@@ -145,10 +145,11 @@ export default function TaskDetail() {
     autoScrollRef.current = atBottom;
   }, []);
 
-  // Scroll to bottom when new entries arrive (if auto-scroll is on)
+  // Scroll log container to bottom when new entries arrive (NOT the page)
   useEffect(() => {
-    if (autoScrollRef.current && logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: "smooth" });
+    if (autoScrollRef.current && logContainerRef.current) {
+      const el = logContainerRef.current;
+      el.scrollTop = el.scrollHeight;
     }
   }, [logEntries]);
 
