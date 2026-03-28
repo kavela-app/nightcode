@@ -57,6 +57,11 @@ export function createApp(
 
     const needsSetup = repos.length === 0;
 
+    // Only return auth token if request comes from localhost (first-time setup)
+    // or if no auth token is configured (local-only mode)
+    const isLocal = c.req.header("host")?.startsWith("localhost") || c.req.header("host")?.startsWith("127.0.0.1");
+    const hasAuth = !!config.authToken;
+
     return c.json({
       data: {
         needsSetup,
@@ -64,7 +69,8 @@ export function createApp(
         github: githubResult,
         kavela: { configured: kavelaConfigured },
         repos: repos.length,
-        authToken: config.authToken,
+        authToken: (!hasAuth || isLocal) ? config.authToken : null,
+        requiresLogin: hasAuth && !isLocal,
       },
     });
   });
@@ -93,6 +99,22 @@ export function createApp(
     }
     const result = await setClaudeApiKey(apiKey);
     return c.json({ data: result });
+  });
+
+  // Login validation (no auth required — this IS the auth check)
+  app.post("/api/auth/login", async (c) => {
+    const { token } = await c.req.json<{ token: string }>();
+    if (!token) {
+      return c.json({ data: { ok: false, error: "Token is required" } }, 400);
+    }
+    if (!config.authToken) {
+      // No auth configured — any token is valid (local mode)
+      return c.json({ data: { ok: true } });
+    }
+    if (token === config.authToken) {
+      return c.json({ data: { ok: true } });
+    }
+    return c.json({ data: { ok: false, error: "Invalid token" } }, 401);
   });
 
   // GitHub CLI auth (no auth required — needed during setup)

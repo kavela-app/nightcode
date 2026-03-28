@@ -24,6 +24,13 @@ async function request<T>(
 }
 
 export const api = {
+  // Auth
+  login: (token: string) =>
+    request<{ data: { ok: boolean; error?: string } }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+
   // Setup (no auth required)
   getSetupStatus: () => request<{ data: SetupStatus }>("/setup/status"),
   startClaudeLogin: () =>
@@ -201,6 +208,7 @@ export interface SetupStatus {
   kavela: { configured: boolean };
   repos: number;
   authToken: string | null;
+  requiresLogin?: boolean;
 }
 
 export type CreateScheduleInput = {
