@@ -5,7 +5,7 @@ export const prStep: StepDefinition = {
   allowedTools: ["Bash", "Read", "Glob"],
   resumeFromPrevious: true,
   buildPrompt: (task, repo) => {
-    const nightcodeUrl = process.env.NIGHTCODE_URL || "http://localhost:3777";
+    const nightcodeUrl = task.nightcodeUrl;
 
     // Build PR body programmatically so Claude just needs to fill in the summary
     const planSection = task.stepResults.plan

@@ -1,0 +1,21 @@
+# Usage: docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d --build
+services:
+  tailscale:
+    image: tailscale/tailscale:latest
+    hostname: nightcode
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_EXTRA_ARGS=--advertise-tags=tag:server
+      - TS_SERVE_CONFIG=/config/serve.json
+      - TS_STATE_DIR=/var/lib/tailscale
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./tailscale-config:/config:ro
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    restart: unless-stopped
+    network_mode: service:nightcode  # Share network namespace with nightcode
+
+volumes:
+  tailscale-state:

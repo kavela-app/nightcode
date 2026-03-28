@@ -33,6 +33,11 @@ export default function Settings() {
   const [customPrompt, setCustomPrompt] = useState("");
   const [customPromptSaved, setCustomPromptSaved] = useState(false);
 
+  // Nightcode URL
+  const [nightcodeUrl, setNightcodeUrl] = useState("");
+  const [nightcodeUrlStatus, setNightcodeUrlStatus] = useState<"untested" | "ok" | "failed">("untested");
+  const [nightcodeUrlSaved, setNightcodeUrlSaved] = useState(false);
+
   useEffect(() => {
     testClaude();
     testGithub();
@@ -50,6 +55,10 @@ export default function Settings() {
       if (res.data?.custom_system_prompt) {
         setCustomPrompt(res.data.custom_system_prompt);
       }
+      if (res.data?.nightcode_url) {
+        setNightcodeUrl(res.data.nightcode_url);
+        setNightcodeUrlStatus("ok");
+      }
     } catch {
       // Settings not available yet
     }
@@ -60,6 +69,15 @@ export default function Settings() {
       await api.updateSettings({ custom_system_prompt: customPrompt });
       setCustomPromptSaved(true);
       setTimeout(() => setCustomPromptSaved(false), 2000);
+    } catch { /* ignore */ }
+  }
+
+  async function saveNightcodeUrl() {
+    try {
+      await api.updateSettings({ nightcode_url: nightcodeUrl });
+      setNightcodeUrlSaved(true);
+      setNightcodeUrlStatus(nightcodeUrl ? "ok" : "untested");
+      setTimeout(() => setNightcodeUrlSaved(false), 2000);
     } catch { /* ignore */ }
   }
 
@@ -493,6 +511,54 @@ export default function Settings() {
           >
             Save Prompt
           </button>
+        </div>
+
+        {/* Nightcode URL */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h3 className="text-sm font-medium text-zinc-200">
+                Nightcode URL
+              </h3>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Set this to your Tailscale Funnel URL for remote access, Lark bots, and PR backlinks
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {nightcodeUrlSaved && (
+                <span className="text-xs text-green-400">Saved</span>
+              )}
+              <span
+                className={`text-xs px-2 py-0.5 rounded-full ${
+                  nightcodeUrl && nightcodeUrlStatus === "ok"
+                    ? "bg-green-900/30 text-green-400"
+                    : "bg-zinc-800 text-zinc-500"
+                }`}
+              >
+                {nightcodeUrl ? `Public: ${nightcodeUrl}` : "Local only (localhost:3777)"}
+              </span>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="https://nightcode.your-tailnet.ts.net"
+              value={nightcodeUrl}
+              onChange={(e) => { setNightcodeUrl(e.target.value); setNightcodeUrlSaved(false); setNightcodeUrlStatus("untested"); }}
+              className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-zinc-600"
+            />
+            <button
+              onClick={saveNightcodeUrl}
+              className="bg-zinc-700 hover:bg-zinc-600 text-white px-3 py-2 rounded text-sm"
+            >
+              Save
+            </button>
+          </div>
+          <p className="text-xs text-zinc-600 mt-2">
+            Used in PR backlinks and the Agent API endpoint. See{" "}
+            <code className="text-zinc-500">docker-compose.tailscale.yml</code>{" "}
+            for Tailscale sidecar setup.
+          </p>
         </div>
 
         {/* API Token */}

@@ -44,6 +44,7 @@ export interface TaskContext {
   branchName: string | null;
   sessionId: string | null;
   notes: string | null;
+  nightcodeUrl: string;
   stepResults: Record<string, string>; // step name → result summary
   kavelaSkills: string[]; // skills loaded from Kavela MCP
 }
@@ -174,6 +175,16 @@ export async function executeWorkflow(
     stepResults[s.stepName] = s.result!;
   }
 
+  // Resolve nightcode URL: env var → settings DB → fallback to localhost
+  let nightcodeUrl = config.publicUrl || "";
+  if (!nightcodeUrl) {
+    const urlRow = db.select().from(schema.settings).where(eq(schema.settings.key, "nightcode_url")).get();
+    if (urlRow) nightcodeUrl = urlRow.value;
+  }
+  if (!nightcodeUrl) {
+    nightcodeUrl = `http://localhost:${config.port}`;
+  }
+
   const taskContext: TaskContext = {
     id: task.id,
     title: task.title,
@@ -182,6 +193,7 @@ export async function executeWorkflow(
     branchName,
     sessionId,
     notes: task.notes,
+    nightcodeUrl,
     stepResults,
     kavelaSkills: [],
   };

@@ -15,6 +15,7 @@ export default function Agent() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [publicUrl, setPublicUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(0);
@@ -25,6 +26,9 @@ export default function Agent() {
 
   useEffect(() => {
     inputRef.current?.focus();
+    api.getSettings().then(res => {
+      if (res.data?.nightcode_url) setPublicUrl(res.data.nightcode_url);
+    }).catch(() => {});
   }, []);
 
   async function handleSend(e: React.FormEvent) {
@@ -79,10 +83,12 @@ export default function Agent() {
         </div>
         <div className="text-right">
           <code className="text-xs bg-zinc-800 border border-zinc-700 px-2 py-1 rounded text-zinc-400 font-mono">
-            POST /api/agent
+            POST {publicUrl ? `${publicUrl}/api/agent` : "/api/agent"}
           </code>
           <p className="text-xs text-zinc-600 mt-1">
-            Use your auth token for external access
+            {publicUrl
+              ? "Use your auth token for remote access"
+              : "Set your Tailscale URL in Settings for remote access"}
           </p>
         </div>
       </div>

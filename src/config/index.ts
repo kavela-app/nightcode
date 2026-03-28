@@ -7,6 +7,7 @@ export interface NightcodeConfig {
   reposDir: string;
   maxConcurrent: number;
   authToken: string | null;
+  publicUrl: string | null;
   timezone: string;
   kavela: {
     apiKey: string | null;
@@ -37,6 +38,7 @@ export function loadConfig(): NightcodeConfig {
       10,
     ),
     authToken,
+    publicUrl: process.env.NIGHTCODE_URL || null,
     timezone: process.env.TZ || "UTC",
     kavela: {
       apiKey: process.env.KAVELA_API_KEY || null,
