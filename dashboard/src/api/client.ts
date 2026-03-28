@@ -72,6 +72,8 @@ export const api = {
   getSchedules: () => request<{ data: Schedule[] }>("/schedules"),
   createSchedule: (data: CreateScheduleInput) =>
     request<{ data: Schedule }>("/schedules", { method: "POST", body: JSON.stringify(data) }),
+  updateSchedule: (id: number, data: Partial<Schedule>) =>
+    request<{ data: Schedule }>(`/schedules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteSchedule: (id: number) => request(`/schedules/${id}`, { method: "DELETE" }),
   triggerSchedule: (id: number) => request(`/schedules/${id}/trigger`, { method: "POST" }),
 
@@ -131,6 +133,7 @@ export interface Task {
   prUrl: string | null;
   prNumber: number | null;
   sessionId: string | null;
+  scheduleId: number | null;
   error: string | null;
   retryCount: number;
   notes: string | null;
@@ -154,17 +157,20 @@ export interface TaskStep {
 export interface Schedule {
   id: number;
   name: string;
-  cronExpr: string;
+  cronExpr: string | null;
+  intervalMinutes: number | null;
+  windowStart: string | null;
+  windowEnd: string | null;
   timezone: string;
   enabled: boolean;
-  taskTemplate: string;
+  taskTemplate: string | null;
   lastRun: string | null;
   nextRun: string | null;
   createdAt: string;
 }
 
 export type CreateRepoInput = { name: string; url: string; branch?: string; systemPrompt?: string };
-export type CreateTaskInput = { repoId: number; title: string; prompt: string; workflow?: string; priority?: number };
+export type CreateTaskInput = { repoId: number; title: string; prompt: string; workflow?: string; priority?: number; scheduleId?: number };
 export interface SetupStatus {
   needsSetup: boolean;
   claude: { ok: boolean; error?: string };
@@ -176,7 +182,11 @@ export interface SetupStatus {
 
 export type CreateScheduleInput = {
   name: string;
-  cronExpr: string;
+  intervalMinutes?: number;
+  windowStart?: string;
+  windowEnd?: string;
+  cronExpr?: string;
   timezone: string;
-  taskTemplate: { repoId: number; title: string; prompt: string; workflow?: string; priority?: number };
+  enabled?: boolean;
+  taskTemplate?: { repoId: number; title: string; prompt: string; workflow?: string; priority?: number };
 };

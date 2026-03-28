@@ -7,6 +7,8 @@ import { createTaskRoutes } from "./routes/tasks.js";
 import { createScheduleRoutes } from "./routes/schedules.js";
 import settingsRoutes from "./routes/settings.js";
 import { createDashboardRoutes } from "./routes/dashboard.js";
+import { createAgentRoutes, processAgentMessage } from "./routes/agent.js";
+import { createLarkRoutes } from "./routes/lark.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { getDb, schema } from "../db/index.js";
@@ -92,6 +94,9 @@ export function createApp(
     return c.json({ data: result });
   });
 
+  // Lark webhook (no auth required — Lark needs to reach this)
+  app.route("/api/lark", createLarkRoutes((msg) => processAgentMessage(msg, executor)));
+
   // Auth middleware for all /api routes (except health + setup)
   app.use("/api/*", authMiddleware(config));
 
@@ -101,6 +106,7 @@ export function createApp(
   app.route("/api/schedules", createScheduleRoutes(scheduler));
   app.route("/api/settings", settingsRoutes);
   app.route("/api/dashboard", createDashboardRoutes(executor));
+  app.route("/api/agent", createAgentRoutes(executor));
 
   // Serve dashboard SPA (static files)
   app.use(

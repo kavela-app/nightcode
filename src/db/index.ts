@@ -106,10 +106,13 @@ function runMigrations(sqlite: Database.Database) {
     CREATE TABLE IF NOT EXISTS schedules (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
-      cron_expr TEXT NOT NULL,
+      cron_expr TEXT,
       timezone TEXT NOT NULL DEFAULT 'UTC',
       enabled INTEGER NOT NULL DEFAULT 1,
-      task_template TEXT NOT NULL,
+      task_template TEXT,
+      interval_minutes INTEGER,
+      window_start TEXT,
+      window_end TEXT,
       last_run TEXT,
       next_run TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -128,6 +131,12 @@ function runMigrations(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_session_messages_task_id ON session_messages(task_id);
     CREATE INDEX IF NOT EXISTS idx_schedules_enabled ON schedules(enabled);
   `);
+
+  // Incremental migrations for new columns
+  try { sqlite.exec("ALTER TABLE schedules ADD COLUMN interval_minutes INTEGER"); } catch {}
+  try { sqlite.exec("ALTER TABLE schedules ADD COLUMN window_start TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE schedules ADD COLUMN window_end TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE tasks ADD COLUMN schedule_id INTEGER REFERENCES schedules(id) ON DELETE SET NULL"); } catch {}
 }
 
 export { schema };

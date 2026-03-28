@@ -4,7 +4,9 @@
   "description": "Your code ships while you dream. Run Claude Code tasks autonomously while you sleep.",
   "private": true,
   "type": "module",
-  "workspaces": ["dashboard"],
+  "workspaces": [
+    "dashboard"
+  ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc && npm run build:dashboard",

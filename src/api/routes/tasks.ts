@@ -14,6 +14,7 @@ const createTaskSchema = z.object({
     .default("plan-implement-pr"),
   priority: z.number().int().min(1).max(10).default(5),
   notes: z.string().optional(),
+  scheduleId: z.number().int().positive().optional(),
 });
 
 export function createTaskRoutes(executor: ExecutorPool) {
@@ -147,6 +148,15 @@ export function createTaskRoutes(executor: ExecutorPool) {
     const parsed = createTaskSchema.safeParse(body);
     if (!parsed.success) {
       return c.json({ error: { code: "VALIDATION_ERROR", message: parsed.error.message } }, 400);
+    }
+
+    // Auto-assign scheduleId if not provided and exactly 1 active schedule exists
+    if (!parsed.data.scheduleId) {
+      const activeSchedules = db.select().from(schema.schedules)
+        .where(eq(schema.schedules.enabled, true)).all();
+      if (activeSchedules.length === 1) {
+        (parsed.data as any).scheduleId = activeSchedules[0].id;
+      }
     }
 
     // Verify repo exists

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Task, type Repo } from "../api/client";
+import { api, type Task, type Repo, type Schedule } from "../api/client";
 
 const statusBadge: Record<string, string> = {
   pending: "bg-zinc-700 text-zinc-300",
@@ -15,26 +15,59 @@ const statusBadge: Record<string, string> = {
 export default function Tasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ repoId: 0, title: "", prompt: "", workflow: "plan-implement-pr", priority: 5 });
+  const [form, setForm] = useState({
+    repoId: 0,
+    title: "",
+    prompt: "",
+    workflow: "plan-implement-pr",
+    priority: 5,
+    scheduleId: 0,
+  });
+  const [creatingRepo, setCreatingRepo] = useState(false);
+  const [newRepo, setNewRepo] = useState({ name: "", url: "", branch: "main" });
 
   useEffect(() => {
     load();
   }, []);
 
   async function load() {
-    const [t, r] = await Promise.all([api.getTasks(), api.getRepos()]);
+    const [t, r, s] = await Promise.all([api.getTasks(), api.getRepos(), api.getSchedules()]);
     setTasks(t.data);
     setRepos(r.data);
+    setSchedules(s.data);
     if (r.data.length > 0 && form.repoId === 0) {
       setForm((f) => ({ ...f, repoId: r.data[0].id }));
+    }
+    // Pre-select schedule if exactly 1 active schedule
+    const activeSchedules = s.data.filter((sch) => sch.enabled);
+    if (activeSchedules.length === 1) {
+      setForm((f) => ({ ...f, scheduleId: activeSchedules[0].id }));
     }
   }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    await api.createTask(form);
+    let repoId = form.repoId;
+
+    // If creating a new repo inline, create it first
+    if (creatingRepo) {
+      const res = await api.createRepo({ name: newRepo.name, url: newRepo.url, branch: newRepo.branch });
+      repoId = res.data.id;
+    }
+
+    await api.createTask({
+      repoId,
+      title: form.title,
+      prompt: form.prompt,
+      workflow: form.workflow,
+      priority: form.priority,
+      scheduleId: form.scheduleId || undefined,
+    });
     setShowCreate(false);
+    setCreatingRepo(false);
+    setNewRepo({ name: "", url: "", branch: "main" });
     setForm((f) => ({ ...f, title: "", prompt: "" }));
     load();
   }
@@ -44,6 +77,22 @@ export default function Tasks() {
     else if (action === "pause") await api.pauseTask(id);
     else await api.cancelTask(id);
     load();
+  }
+
+  function handleRepoSelect(value: number) {
+    if (value === 0) {
+      setCreatingRepo(true);
+      setForm({ ...form, repoId: 0 });
+    } else {
+      setCreatingRepo(false);
+      setForm({ ...form, repoId: value });
+    }
+  }
+
+  function getScheduleName(scheduleId: number | null): string | null {
+    if (!scheduleId) return null;
+    const s = schedules.find((sch) => sch.id === scheduleId);
+    return s ? s.name : null;
   }
 
   return (
@@ -66,13 +115,14 @@ export default function Tasks() {
         >
           <div className="grid grid-cols-2 gap-3">
             <select
-              value={form.repoId}
-              onChange={(e) => setForm({ ...form, repoId: Number(e.target.value) })}
+              value={creatingRepo ? 0 : form.repoId}
+              onChange={(e) => handleRepoSelect(Number(e.target.value))}
               className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
             >
               {repos.map((r) => (
                 <option key={r.id} value={r.id}>{r.name}</option>
               ))}
+              <option value={0}>+ Add new repo</option>
             </select>
             <select
               value={form.workflow}
@@ -84,6 +134,48 @@ export default function Tasks() {
               <option value="plan-audit-implement-pr">Thorough (plan + audit + implement + test + PR)</option>
             </select>
           </div>
+
+          {/* Inline repo creation fields */}
+          {creatingRepo && (
+            <div className="grid grid-cols-3 gap-3 border border-zinc-700 rounded p-3 bg-zinc-800/50">
+              <input
+                type="text"
+                placeholder="Repo name"
+                value={newRepo.name}
+                onChange={(e) => setNewRepo({ ...newRepo, name: e.target.value })}
+                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                required
+              />
+              <input
+                type="text"
+                placeholder="git@github.com:org/repo.git"
+                value={newRepo.url}
+                onChange={(e) => setNewRepo({ ...newRepo, url: e.target.value })}
+                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                required
+              />
+              <input
+                type="text"
+                placeholder="Branch (default: main)"
+                value={newRepo.branch}
+                onChange={(e) => setNewRepo({ ...newRepo, branch: e.target.value })}
+                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+              />
+            </div>
+          )}
+
+          {/* Schedule dropdown */}
+          <select
+            value={form.scheduleId}
+            onChange={(e) => setForm({ ...form, scheduleId: Number(e.target.value) })}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+          >
+            <option value={0}>No schedule (manual)</option>
+            {schedules.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+
           <input
             type="text"
             placeholder="Task title"
@@ -102,7 +194,7 @@ export default function Tasks() {
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setShowCreate(false)}
+              onClick={() => { setShowCreate(false); setCreatingRepo(false); }}
               className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200"
             >
               Cancel
@@ -124,81 +216,89 @@ export default function Tasks() {
             No tasks yet. Create one to get started.
           </p>
         )}
-        {tasks.map((task) => (
-          <div
-            key={task.id}
-            className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex items-center justify-between"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full ${statusBadge[task.status] || "bg-zinc-700 text-zinc-300"}`}
-                >
-                  {task.status}
-                </span>
-                <span className="text-xs text-zinc-600 font-mono">
-                  P{task.priority}
-                </span>
-                {task.currentStep && (
-                  <span className="text-xs text-zinc-500">
-                    step: {task.currentStep}
-                  </span>
-                )}
-                {task.prUrl && (
-                  <a
-                    href={task.prUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="inline-flex items-center gap-1 bg-blue-900/30 border border-blue-800/50 text-blue-300 hover:text-blue-200 hover:bg-blue-900/40 px-2 py-0.5 rounded text-xs font-medium transition-colors"
+        {tasks.map((task) => {
+          const scheduleName = getScheduleName(task.scheduleId);
+          return (
+            <div
+              key={task.id}
+              className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex items-center justify-between"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full ${statusBadge[task.status] || "bg-zinc-700 text-zinc-300"}`}
                   >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                    {task.prNumber ? `PR #${task.prNumber}` : "PR"}
-                  </a>
+                    {task.status}
+                  </span>
+                  <span className="text-xs text-zinc-600 font-mono">
+                    P{task.priority}
+                  </span>
+                  {scheduleName && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-purple-900/40 text-purple-300">
+                      {scheduleName}
+                    </span>
+                  )}
+                  {task.currentStep && (
+                    <span className="text-xs text-zinc-500">
+                      step: {task.currentStep}
+                    </span>
+                  )}
+                  {task.prUrl && (
+                    <a
+                      href={task.prUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 bg-blue-900/30 border border-blue-800/50 text-blue-300 hover:text-blue-200 hover:bg-blue-900/40 px-2 py-0.5 rounded text-xs font-medium transition-colors"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      {task.prNumber ? `PR #${task.prNumber}` : "PR"}
+                    </a>
+                  )}
+                </div>
+                <Link
+                  to={`/tasks/${task.id}`}
+                  className="text-zinc-200 hover:text-white text-sm font-medium"
+                >
+                  {task.title}
+                </Link>
+                {task.status === "failed" && task.error && (
+                  <p className="text-xs text-red-400/80 mt-1 truncate">
+                    {task.error.length > 120 ? task.error.slice(0, 120) + "..." : task.error}
+                  </p>
                 )}
               </div>
-              <Link
-                to={`/tasks/${task.id}`}
-                className="text-zinc-200 hover:text-white text-sm font-medium"
-              >
-                {task.title}
-              </Link>
-              {task.status === "failed" && task.error && (
-                <p className="text-xs text-red-400/80 mt-1 truncate">
-                  {task.error.length > 120 ? task.error.slice(0, 120) + "..." : task.error}
-                </p>
-              )}
+              <div className="flex items-center gap-1 ml-4">
+                {(task.status === "pending" || task.status === "paused" || task.status === "failed") && (
+                  <button
+                    onClick={() => handleAction(task.id, "run")}
+                    className="text-xs bg-green-900/30 text-green-400 hover:bg-green-900/50 px-2 py-1 rounded"
+                  >
+                    Run
+                  </button>
+                )}
+                {task.status === "running" && (
+                  <button
+                    onClick={() => handleAction(task.id, "pause")}
+                    className="text-xs bg-orange-900/30 text-orange-400 hover:bg-orange-900/50 px-2 py-1 rounded"
+                  >
+                    Pause
+                  </button>
+                )}
+                {(task.status === "running" || task.status === "queued") && (
+                  <button
+                    onClick={() => handleAction(task.id, "cancel")}
+                    className="text-xs bg-red-900/30 text-red-400 hover:bg-red-900/50 px-2 py-1 rounded"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-1 ml-4">
-              {(task.status === "pending" || task.status === "paused" || task.status === "failed") && (
-                <button
-                  onClick={() => handleAction(task.id, "run")}
-                  className="text-xs bg-green-900/30 text-green-400 hover:bg-green-900/50 px-2 py-1 rounded"
-                >
-                  Run
-                </button>
-              )}
-              {task.status === "running" && (
-                <button
-                  onClick={() => handleAction(task.id, "pause")}
-                  className="text-xs bg-orange-900/30 text-orange-400 hover:bg-orange-900/50 px-2 py-1 rounded"
-                >
-                  Pause
-                </button>
-              )}
-              {(task.status === "running" || task.status === "queued") && (
-                <button
-                  onClick={() => handleAction(task.id, "cancel")}
-                  className="text-xs bg-red-900/30 text-red-400 hover:bg-red-900/50 px-2 py-1 rounded"
-                >
-                  Cancel
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

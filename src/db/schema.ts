@@ -61,6 +61,7 @@ export const tasks = sqliteTable("tasks", {
   retryCount: integer("retry_count").notNull().default(0),
   maxRetries: integer("max_retries").notNull().default(2),
   notes: text("notes"), // User annotations between steps
+  scheduleId: integer("schedule_id").references(() => schedules.id, { onDelete: "set null" }),
   startedAt: text("started_at"),
   completedAt: text("completed_at"),
   createdAt: text("created_at")
@@ -126,10 +127,13 @@ export const sessionMessages = sqliteTable("session_messages", {
 export const schedules = sqliteTable("schedules", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
-  cronExpr: text("cron_expr").notNull(),
+  cronExpr: text("cron_expr"),
   timezone: text("timezone").notNull().default("UTC"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-  taskTemplate: text("task_template").notNull(), // JSON: { repoId, title, prompt, workflow, priority }
+  intervalMinutes: integer("interval_minutes"),
+  windowStart: text("window_start"),
+  windowEnd: text("window_end"),
+  taskTemplate: text("task_template"), // JSON: { repoId, title, prompt, workflow, priority }
   lastRun: text("last_run"),
   nextRun: text("next_run"),
   createdAt: text("created_at")

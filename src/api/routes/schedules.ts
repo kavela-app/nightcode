@@ -6,7 +6,10 @@ import type { Scheduler } from "../../scheduler/index.js";
 
 const createScheduleSchema = z.object({
   name: z.string().min(1).max(100),
-  cronExpr: z.string().min(1),
+  cronExpr: z.string().min(1).optional(),
+  intervalMinutes: z.number().int().positive().optional(),
+  windowStart: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  windowEnd: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   timezone: z.string().default("UTC"),
   enabled: z.boolean().default(true),
   taskTemplate: z.object({
@@ -15,8 +18,11 @@ const createScheduleSchema = z.object({
     prompt: z.string().min(1),
     workflow: z.string().default("plan-implement-pr"),
     priority: z.number().int().min(1).max(10).default(5),
-  }),
-});
+  }).optional(),
+}).refine(
+  (data) => data.cronExpr || data.intervalMinutes,
+  { message: "Either cronExpr or intervalMinutes is required" },
+);
 
 export function createScheduleRoutes(scheduler: Scheduler) {
   const app = new Hono();
@@ -51,9 +57,12 @@ export function createScheduleRoutes(scheduler: Scheduler) {
       .values({
         name: parsed.data.name,
         cronExpr: parsed.data.cronExpr,
+        intervalMinutes: parsed.data.intervalMinutes,
+        windowStart: parsed.data.windowStart,
+        windowEnd: parsed.data.windowEnd,
         timezone: parsed.data.timezone,
         enabled: parsed.data.enabled,
-        taskTemplate: JSON.stringify(parsed.data.taskTemplate),
+        taskTemplate: parsed.data.taskTemplate ? JSON.stringify(parsed.data.taskTemplate) : undefined,
       })
       .returning()
       .get();
