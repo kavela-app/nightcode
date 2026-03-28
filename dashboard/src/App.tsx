@@ -6,6 +6,7 @@ import Tasks from "./pages/Tasks";
 import TaskDetail from "./pages/TaskDetail";
 import Repos from "./pages/Repos";
 import Schedules from "./pages/Schedules";
+import Agent from "./pages/Agent";
 import Settings from "./pages/Settings";
 import Setup from "./pages/Setup";
 import { api } from "./api/client";
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/tasks/:id" element={<TaskDetail />} />
         <Route path="/repos" element={<Repos />} />
+        <Route path="/agent" element={<Agent />} />
         <Route path="/schedules" element={<Schedules />} />
         <Route path="/settings" element={<Settings />} />
       </Route>

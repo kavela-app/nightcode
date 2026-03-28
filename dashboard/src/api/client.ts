@@ -38,6 +38,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ apiKey }),
     }),
+  testGhAuth: () =>
+    request<{ data: { ok: boolean; user?: string; error?: string } }>("/setup/gh-status"),
+  loginGh: (token: string) =>
+    request<{ data: { ok: boolean; error?: string } }>("/setup/gh-login", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
 
   // Dashboard
   getStats: () => request<{ data: DashboardStats }>("/dashboard/stats"),
@@ -67,6 +74,11 @@ export const api = {
   resumeTask: (id: number) => request(`/tasks/${id}/resume`, { method: "POST" }),
   cancelTask: (id: number) => request(`/tasks/${id}/cancel`, { method: "POST" }),
   exportTask: (id: number) => request<{ data: { markdown: string } }>(`/tasks/${id}/export`),
+  refineTask: (id: number, message: string) =>
+    request<{ data: Task }>(`/tasks/${id}/refine`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
 
   // Schedules
   getSchedules: () => request<{ data: Schedule[] }>("/schedules"),
@@ -76,6 +88,13 @@ export const api = {
     request<{ data: Schedule }>(`/schedules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteSchedule: (id: number) => request(`/schedules/${id}`, { method: "DELETE" }),
   triggerSchedule: (id: number) => request(`/schedules/${id}/trigger`, { method: "POST" }),
+
+  // Agent
+  sendAgentMessage: (message: string) =>
+    request<{ data: { reply: string; action: string | null; data?: any } }>("/agent", {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
 
   // Settings
   getSettings: () => request<{ data: Record<string, string> }>("/settings"),
@@ -88,6 +107,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ apiKey }),
     }),
+  rotateToken: () =>
+    request<{ data: { token: string } }>("/settings/rotate-token", { method: "POST" }),
 };
 
 // Types
@@ -134,12 +155,14 @@ export interface Task {
   prNumber: number | null;
   sessionId: string | null;
   scheduleId: number | null;
+  parentTaskId: number | null;
   error: string | null;
   retryCount: number;
   notes: string | null;
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
+  subtasks?: Task[];
 }
 
 export interface TaskStep {

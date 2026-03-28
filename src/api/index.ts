@@ -14,6 +14,7 @@ import { errorHandler } from "./middleware/error-handler.js";
 import { getDb, schema } from "../db/index.js";
 import { testClaudeAuth, startClaudeLogin, submitClaudeAuthCode, setClaudeApiKey, resetClaudeLogin } from "../executor/claude-cli.js";
 import { testSshAccess } from "../executor/git-ops.js";
+import { testGhAuth, loginGhWithToken } from "../executor/gh-auth.js";
 import type { NightcodeConfig } from "../config/index.js";
 import type { ExecutorPool } from "../executor/index.js";
 import type { Scheduler } from "../scheduler/index.js";
@@ -94,11 +95,38 @@ export function createApp(
     return c.json({ data: result });
   });
 
+  // GitHub CLI auth (no auth required — needed during setup)
+  app.get("/api/setup/gh-status", async (c) => {
+    const result = await testGhAuth();
+    return c.json({ data: result });
+  });
+
+  app.post("/api/setup/gh-login", async (c) => {
+    const { token } = await c.req.json<{ token: string }>();
+    if (!token) return c.json({ data: { ok: false, error: "Token is required" } }, 400);
+    const result = await loginGhWithToken(token);
+    return c.json({ data: result });
+  });
+
   // Lark webhook (no auth required — Lark needs to reach this)
   app.route("/api/lark", createLarkRoutes((msg) => processAgentMessage(msg, executor)));
 
   // Auth middleware for all /api routes (except health + setup)
   app.use("/api/*", authMiddleware(config));
+
+  // Rotate auth token (requires current auth)
+  app.post("/api/settings/rotate-token", async (c) => {
+    const { writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { generateToken } = await import("../utils/crypto.js");
+
+    const newToken = generateToken("nc");
+    const tokenPath = join(config.dataDir, ".auth-token");
+    writeFileSync(tokenPath, newToken);
+    config.authToken = newToken;
+
+    return c.json({ data: { token: newToken } });
+  });
 
   // API routes
   app.route("/api/repos", repoRoutes);

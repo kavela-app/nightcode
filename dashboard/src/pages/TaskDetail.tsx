@@ -1,15 +1,26 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { api, type Task, type TaskStep } from "../api/client";
 import StepProgress from "../components/StepProgress";
 
-// SSE event types
+// SSE event types — Claude stream messages have nested content blocks
 interface SSEMessageData {
-  type: string; // "assistant", "tool_use", "tool_result", "system"
-  content?: string;
-  tool_name?: string;
-  tool_input?: unknown;
+  type: string; // "assistant", "user", "system", "result"
+  subtype?: string; // for system: "init", "task_started", "task_progress"
+  model?: string;
+  message?: {
+    role: string;
+    content: Array<{
+      type: string;
+      text?: string;
+      thinking?: string;
+      name?: string;
+      input?: unknown;
+      content?: string | unknown;
+    }>;
+  };
   result?: string;
+  cost_usd?: number;
 }
 
 interface SSEStepUpdateData {
@@ -48,13 +59,76 @@ function truncate(str: string | undefined | null, max: number): string {
   return str.length > max ? str.slice(0, max) + "..." : str;
 }
 
+function formatToolInput(input: unknown): string {
+  if (!input) return "";
+  if (typeof input === "string") return input;
+  const obj = input as Record<string, unknown>;
+  // Show key params cleanly instead of raw JSON
+  const parts: string[] = [];
+  if (obj.file_path || obj.path) parts.push(String(obj.file_path || obj.path).replace(/^\/repos\/[^/]+\//, ""));
+  if (obj.pattern) parts.push(`"${truncate(String(obj.pattern), 40)}"`);
+  if (obj.command) parts.push(truncate(String(obj.command), 60));
+  if (obj.content) parts.push(truncate(String(obj.content), 40));
+  if (obj.old_string) parts.push("replacing...");
+  if (parts.length > 0) return parts.join(" ");
+  return truncate(JSON.stringify(input), 80);
+}
+
+function formatToolResult(content: unknown): string {
+  if (!content) return "";
+  const text = typeof content === "string" ? content : JSON.stringify(content);
+  // Clean up common patterns
+  const lines = text.split("\n").filter(l => l.trim());
+  if (lines.length <= 3) return truncate(text.replace(/\n/g, " ").trim(), 150);
+  return truncate(lines[0], 100) + ` (+${lines.length - 1} lines)`;
+}
+
+function parseStreamMessage(msg: SSEMessageData): Omit<LogEntry, "id" | "timestamp">[] {
+  const type = msg.type;
+  const entries: Omit<LogEntry, "id" | "timestamp">[] = [];
+
+  if (type === "assistant" && msg.message?.content) {
+    for (const block of msg.message.content) {
+      if (block.type === "text" && block.text) {
+        entries.push({ type: "assistant", text: block.text });
+      }
+      if (block.type === "tool_use") {
+        const detail = formatToolInput(block.input);
+        entries.push({ type: "tool_use", text: block.name || "tool", detail });
+      }
+    }
+  }
+
+  if (type === "user" && msg.message?.content) {
+    for (const block of msg.message.content) {
+      if (block.type === "tool_result") {
+        const text = formatToolResult(block.content);
+        if (text) entries.push({ type: "tool_result", text });
+      }
+    }
+  }
+
+  if (type === "result") {
+    entries.push({ type: "system", text: `Completed (cost: $${msg.cost_usd?.toFixed(4) || "?"})` });
+  }
+
+  if (type === "system" && msg.subtype === "init") {
+    entries.push({ type: "system", text: `Session started (${msg.model || "claude"})` });
+  }
+
+  return entries;
+}
+
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
-  const [task, setTask] = useState<(Task & { steps: TaskStep[] }) | null>(null);
-  const [notes, setNotes] = useState("");
+  const [task, setTask] = useState<(Task & { steps: TaskStep[]; subtasks?: Task[] }) | null>(null);
   const [exportMd, setExportMd] = useState("");
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [sseConnected, setSseConnected] = useState(false);
+  const [refineMessage, setRefineMessage] = useState("");
+  const [refineSending, setRefineSending] = useState(false);
+  const [refineError, setRefineError] = useState("");
+  const [lastCreatedSubtask, setLastCreatedSubtask] = useState<Task | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -87,22 +161,25 @@ export default function TaskDetail() {
     });
   }, []);
 
-  // SSE connection management
+  // SSE connection — connect for all tasks to load history, stay connected for live ones
   useEffect(() => {
-    if (!id || !isLive) {
-      // Disconnect SSE when task is not live
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-        setSseConnected(false);
-      }
-      return;
-    }
+    if (!id) return;
+
+    // If already connected and not live, don't reconnect
+    if (eventSourceRef.current && !isLive) return;
 
     const token = localStorage.getItem("nightcode_token");
     const url = `/api/tasks/${id}/stream${token ? `?token=${encodeURIComponent(token)}` : ""}`;
     const es = new EventSource(url);
     eventSourceRef.current = es;
+
+    // For completed tasks, close after receiving catch-up data
+    if (!isLive) {
+      setTimeout(() => {
+        es.close();
+        eventSourceRef.current = null;
+      }, 3000);
+    }
 
     es.onopen = () => {
       setSseConnected(true);
@@ -113,36 +190,10 @@ export default function TaskDetail() {
         const evt: SSEEvent = JSON.parse(e.data);
         if (evt.type === "message") {
           const d = evt.data as SSEMessageData;
-          if (d.type === "assistant") {
+          const entries = parseStreamMessage(d);
+          for (const entry of entries) {
             addLogEntry({
-              type: "assistant",
-              text: truncate(d.content, 500),
-              timestamp: evt.timestamp,
-            });
-          } else if (d.type === "tool_use") {
-            addLogEntry({
-              type: "tool_use",
-              text: `\u2192 ${d.tool_name || "tool"}`,
-              detail: d.tool_input
-                ? truncate(
-                    typeof d.tool_input === "string"
-                      ? d.tool_input
-                      : JSON.stringify(d.tool_input),
-                    200,
-                  )
-                : undefined,
-              timestamp: evt.timestamp,
-            });
-          } else if (d.type === "tool_result") {
-            addLogEntry({
-              type: "tool_result",
-              text: `\u2190 ${truncate(d.result, 200)}`,
-              timestamp: evt.timestamp,
-            });
-          } else if (d.type === "system") {
-            addLogEntry({
-              type: "system",
-              text: truncate(d.content, 500),
+              ...entry,
               timestamp: evt.timestamp,
             });
           }
@@ -227,13 +278,22 @@ export default function TaskDetail() {
     if (!id) return;
     const res = await api.getTask(parseInt(id, 10));
     setTask(res.data);
-    if (!notes && res.data.notes) setNotes(res.data.notes);
   }
 
-  async function handleSaveNotes() {
-    if (!id) return;
-    await api.updateTask(parseInt(id, 10), { notes } as Partial<Task>);
-    load();
+  async function handleRefine() {
+    if (!id || !refineMessage.trim()) return;
+    setRefineSending(true);
+    setRefineError("");
+    try {
+      const res = await api.refineTask(parseInt(id, 10), refineMessage.trim());
+      setLastCreatedSubtask(res.data);
+      setRefineMessage("");
+      load(); // reload to pick up new subtask
+    } catch (err: any) {
+      setRefineError(err.message || "Failed to create refinement task");
+    } finally {
+      setRefineSending(false);
+    }
   }
 
   async function handleExport() {
@@ -258,6 +318,17 @@ export default function TaskDetail() {
     <div>
       <div className="flex items-start justify-between mb-6">
         <div>
+          {task.parentTaskId && (
+            <Link
+              to={`/tasks/${task.parentTaskId}`}
+              className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 mb-2 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Parent task #{task.parentTaskId}
+            </Link>
+          )}
           <h2 className="text-xl font-semibold">{task.title}</h2>
           <p className="text-sm text-zinc-500 mt-1">
             {task.workflow} &middot; P{task.priority} &middot; {task.status}
@@ -352,13 +423,13 @@ export default function TaskDetail() {
         </div>
       )}
 
-      {/* Live Log */}
-      {isLive && (
+      {/* Activity Log — live when running, persisted when complete */}
+      {(isLive || logEntries.length > 0) && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <h3 className="text-xs text-zinc-500 uppercase tracking-wide">
-                Live Log
+                {isLive ? "Live Log" : "Activity Log"}
               </h3>
               {sseConnected ? (
                 <span className="flex items-center gap-1.5 text-xs text-green-400">
@@ -384,7 +455,7 @@ export default function TaskDetail() {
           <div
             ref={logContainerRef}
             onScroll={handleLogScroll}
-            className="bg-zinc-950 rounded border border-zinc-800 font-mono text-xs leading-relaxed max-h-80 overflow-y-auto p-3 space-y-1"
+            className="bg-zinc-950 rounded border border-zinc-800 font-mono text-xs leading-relaxed h-96 overflow-y-auto p-3 space-y-0.5"
           >
             {logEntries.length === 0 && (
               <div className="text-zinc-600 py-4 text-center">
@@ -392,8 +463,8 @@ export default function TaskDetail() {
               </div>
             )}
             {logEntries.map((entry) => (
-              <div key={entry.id} className="flex gap-2">
-                <span className="text-zinc-700 shrink-0 select-none">
+              <div key={entry.id} className={`flex gap-2 ${entry.type === "assistant" ? "py-1" : ""}`}>
+                <span className="text-zinc-700 shrink-0 select-none tabular-nums">
                   {new Date(entry.timestamp).toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -401,30 +472,32 @@ export default function TaskDetail() {
                   })}
                 </span>
                 {entry.type === "assistant" && (
-                  <span className="text-green-400 whitespace-pre-wrap break-all">
+                  <span className="text-green-400/90 whitespace-pre-wrap break-words min-w-0">
                     {entry.text}
                   </span>
                 )}
                 {entry.type === "tool_use" && (
-                  <span className="text-blue-400 whitespace-pre-wrap break-all">
-                    {entry.text}
+                  <span className="text-blue-400 min-w-0">
+                    <span className="text-blue-500">{"→ "}</span>
+                    <span className="font-semibold">{entry.text}</span>
                     {entry.detail && (
-                      <span className="text-zinc-600 ml-2">{entry.detail}</span>
+                      <span className="text-zinc-600 ml-1.5">{entry.detail}</span>
                     )}
                   </span>
                 )}
                 {entry.type === "tool_result" && (
-                  <span className="text-zinc-500 whitespace-pre-wrap break-all">
+                  <span className="text-zinc-600 min-w-0 truncate">
+                    <span className="text-zinc-700">{"← "}</span>
                     {entry.text}
                   </span>
                 )}
                 {entry.type === "system" && (
-                  <span className="text-yellow-400 whitespace-pre-wrap break-all">
+                  <span className="text-yellow-500/80">
                     {entry.text}
                   </span>
                 )}
                 {entry.type === "step_change" && (
-                  <span className="text-zinc-500 w-full text-center">
+                  <span className="text-zinc-500 w-full text-center block py-1 border-y border-zinc-800/50">
                     {"── "}{entry.text}{" ──"}
                   </span>
                 )}
@@ -457,6 +530,87 @@ export default function TaskDetail() {
         </div>
       )}
 
+      {/* Refinements / Subtasks thread */}
+      {task.subtasks && task.subtasks.length > 0 && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-4">
+          <h3 className="text-xs text-zinc-500 uppercase tracking-wide mb-3">
+            Refinements
+          </h3>
+          <div className="border-l-2 border-zinc-700 ml-2 pl-4 space-y-3">
+            {task.subtasks.map((sub) => (
+              <div key={sub.id} className="relative">
+                <div className="absolute -left-[1.35rem] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-zinc-700 bg-zinc-900" />
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span
+                        className={`inline-block text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+                          sub.status === "completed"
+                            ? "bg-green-900/40 text-green-400"
+                            : sub.status === "running"
+                              ? "bg-blue-900/40 text-blue-400"
+                              : sub.status === "failed"
+                                ? "bg-red-900/40 text-red-400"
+                                : "bg-zinc-800 text-zinc-400"
+                        }`}
+                      >
+                        {sub.status}
+                      </span>
+                      <Link
+                        to={`/tasks/${sub.id}`}
+                        className="text-sm text-zinc-200 hover:text-white truncate transition-colors"
+                      >
+                        {sub.title}
+                      </Link>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-zinc-500">
+                      <span>{new Date(sub.createdAt).toLocaleString()}</span>
+                      {sub.prUrl && (
+                        <a
+                          href={sub.prUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-400 hover:text-blue-300 transition-colors"
+                        >
+                          {sub.prNumber ? `PR #${sub.prNumber}` : "View PR"}
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                  <Link
+                    to={`/tasks/${sub.id}`}
+                    className="shrink-0 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Kavela context loaded */}
+      {(task as any).kavelaSkills?.length > 0 && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-4">
+          <h3 className="text-xs text-zinc-500 uppercase tracking-wide mb-2">
+            Context Loaded from Kavela
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {(task as any).kavelaSkills.map((skill: string) => (
+              <span
+                key={skill}
+                className="text-xs bg-purple-900/30 text-purple-300 border border-purple-800/50 px-2 py-1 rounded"
+              >
+                {skill}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Task prompt */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-4">
         <h3 className="text-xs text-zinc-500 uppercase tracking-wide mb-2">
@@ -468,7 +622,7 @@ export default function TaskDetail() {
       </div>
 
       {/* Take control */}
-      {(task.prUrl || task.sessionId) && (
+      {(task.prUrl || task.status === "running") && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-4">
           <h3 className="text-xs text-zinc-500 uppercase tracking-wide mb-2">
             Take Control
@@ -489,40 +643,87 @@ export default function TaskDetail() {
                 This resumes the session with full context from the PR. Click to copy.
               </p>
             </>
-          ) : task.sessionId ? (
-            <>
-              <p className="text-xs text-zinc-500 mb-2">
-                Session ID (Docker-local, for debugging):
-              </p>
-              <code className="text-xs bg-zinc-800 px-3 py-2 rounded block text-zinc-500 font-mono">
-                {task.sessionId}
-              </code>
-            </>
+          ) : task.status === "running" ? (
+            <p className="text-sm text-zinc-400">
+              Task is running. Pause it first to take control.
+            </p>
           ) : null}
         </div>
       )}
 
-      {/* Notes input */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-4">
-        <h3 className="text-xs text-zinc-500 uppercase tracking-wide mb-2">
-          Developer Notes
-        </h3>
-        <p className="text-xs text-zinc-600 mb-2">
-          Add notes that will be injected into the next step when you resume.
-        </p>
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="e.g., 'Move the webhook handler to a separate file' or 'Use the existing AuthService instead of creating a new one'"
-          className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm h-20 resize-y"
-        />
-        <button
-          onClick={handleSaveNotes}
-          className="mt-2 bg-zinc-700 hover:bg-zinc-600 text-white px-3 py-1.5 rounded text-sm"
-        >
-          Save Notes
-        </button>
-      </div>
+      {/* Refine chat input — shown for completed/failed tasks */}
+      {(task.status === "completed" || task.status === "failed") && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-4">
+          <h3 className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
+            Refine
+          </h3>
+          <p className="text-xs text-zinc-600 mb-3">
+            Send feedback to create a refinement task
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={refineMessage}
+              onChange={(e) => setRefineMessage(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleRefine(); } }}
+              placeholder="e.g., 'The button color should be blue instead of green' or 'Add error handling for the edge case when...'"
+              disabled={refineSending}
+              className="flex-1 bg-zinc-800 border border-zinc-700 rounded-full px-4 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-zinc-500 disabled:opacity-50 transition-colors"
+            />
+            <button
+              onClick={handleRefine}
+              disabled={refineSending || !refineMessage.trim()}
+              className="shrink-0 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white px-4 py-2 rounded-full text-sm font-medium transition-colors flex items-center gap-1.5"
+            >
+              {refineSending ? (
+                <span className="inline-block w-4 h-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              )}
+              Send
+            </button>
+          </div>
+          {refineError && (
+            <p className="text-xs text-red-400 mt-2">{refineError}</p>
+          )}
+          {lastCreatedSubtask && (
+            <div className="mt-3 bg-zinc-800/50 border border-zinc-700 rounded-lg p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="inline-block text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-300">
+                    {lastCreatedSubtask.status}
+                  </span>
+                  <Link
+                    to={`/tasks/${lastCreatedSubtask.id}`}
+                    className="text-sm text-zinc-200 hover:text-white truncate transition-colors"
+                  >
+                    {lastCreatedSubtask.title}
+                  </Link>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={async () => {
+                      await api.runTask(lastCreatedSubtask.id);
+                      load();
+                    }}
+                    className="text-xs bg-green-600 hover:bg-green-500 text-white px-2.5 py-1 rounded transition-colors"
+                  >
+                    Run now
+                  </button>
+                  <Link
+                    to={`/tasks/${lastCreatedSubtask.id}`}
+                    className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+                  >
+                    View
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Export view */}
       {exportMd && (

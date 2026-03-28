@@ -9,6 +9,7 @@ services:
       - ./data:/data                                         # SQLite DB + logs
       - ./repos:/repos                                       # Git workspaces
       - ~/.ssh:/home/nightcode/.ssh:ro                       # GitHub SSH keys
+      - ~/.config/gh:/home/nightcode/.config/gh               # GitHub CLI auth (for PR creation)
       - nightcode-claude:/home/nightcode/.claude             # Claude Code login (persisted)
     environment:
       - TZ=${TZ:-UTC}

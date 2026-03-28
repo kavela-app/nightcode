@@ -1,16 +1,20 @@
 import { NavLink, Outlet } from "react-router-dom";
+import StatusAlert from "./StatusAlert";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: "~" },
   { to: "/tasks", label: "Tasks", icon: ">" },
   { to: "/repos", label: "Repos", icon: "#" },
+  { to: "/agent", label: "Agent", icon: "%" },
   { to: "/schedules", label: "Schedules", icon: "@" },
   { to: "/settings", label: "Settings", icon: "*" },
 ];
 
 export default function Layout() {
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">
+      <StatusAlert />
+      <div className="flex flex-1">
       {/* Sidebar */}
       <nav className="w-56 bg-zinc-900 border-r border-zinc-800 flex flex-col p-4 shrink-0">
         <div className="mb-8">
@@ -56,6 +60,7 @@ export default function Layout() {
           <Outlet />
         </div>
       </main>
+      </div>
     </div>
   );
 }

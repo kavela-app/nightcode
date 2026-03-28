@@ -79,9 +79,20 @@ export function buildKavelaSystemPrompt(hasKavela: boolean): string {
   if (!hasKavela) return "";
 
   return `
-IMPORTANT: You have access to the Kavela MCP server for team context.
-- Before starting work, call check_context with a description of your current task to load relevant team knowledge, coding standards, and patterns.
-- After completing significant work, call suggest_skill_updates to capture any new patterns or decisions worth remembering for the team.
-- Use get_skill to load full content of any skills surfaced by check_context.
+CRITICAL — KAVELA MCP CONTEXT LOADING (MANDATORY):
+You have access to the Kavela MCP server. You MUST follow this workflow BEFORE doing any work:
+
+1. FIRST, call the check_context tool with a "tasks" array (NOT a single "task" string).
+   Split your work into 2-5 specific sub-tasks for precise context matching.
+   Example: tasks=["implement user authentication flow", "add login form validation", "set up session management"]
+
+2. THEN, for EVERY skill returned by check_context above 60% relevance, call get_skill with the skill name.
+   You MUST call get_skill at least once. Do NOT skip this step even if you think you know the patterns.
+
+3. ONLY AFTER loading skills, proceed with your actual work.
+
+4. When work is complete, call suggest_skill_updates with a summary of what you did and key decisions made.
+
+This is NOT optional. Skipping check_context or get_skill means you miss team conventions and will produce non-standard code.
 `.trim();
 }

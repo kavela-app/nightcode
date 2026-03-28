@@ -21,6 +21,12 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 # Claude Code CLI
 RUN npm install -g @anthropic-ai/claude-code
 
+# Optional: Playwright for screenshots (adds ~400MB)
+ARG INSTALL_PLAYWRIGHT=false
+RUN if [ "$INSTALL_PLAYWRIGHT" = "true" ]; then \
+      npx playwright install chromium --with-deps; \
+    fi
+
 # Create non-root user (Claude CLI refuses --dangerously-skip-permissions as root)
 RUN useradd -m -s /bin/bash nightcode \
     && mkdir -p /data /repos /home/nightcode/.claude /home/nightcode/.ssh \

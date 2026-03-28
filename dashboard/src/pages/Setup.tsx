@@ -16,6 +16,10 @@ export default function Setup({ onComplete }: SetupProps) {
     ok: boolean;
     error?: string;
   } | null>(null);
+  const [ghCliStatus, setGhCliStatus] = useState<{ ok: boolean; user?: string; error?: string } | null>(null);
+  const [ghToken, setGhToken] = useState("");
+  const [ghTokenSubmitting, setGhTokenSubmitting] = useState(false);
+  const [ghTokenError, setGhTokenError] = useState("");
   const [repoForm, setRepoForm] = useState({
     name: "",
     url: "",
@@ -34,6 +38,7 @@ export default function Setup({ onComplete }: SetupProps) {
 
   useEffect(() => {
     loadStatus();
+    testGhCli();
   }, []);
 
   async function loadStatus() {
@@ -69,6 +74,35 @@ export default function Setup({ onComplete }: SetupProps) {
       /* ignore */
     }
     setTesting("");
+  }
+
+  async function testGhCli() {
+    setTesting("ghcli");
+    try {
+      const res = await api.testGhAuth();
+      setGhCliStatus(res.data);
+    } catch {
+      setGhCliStatus({ ok: false, error: "Failed to check gh CLI status" });
+    }
+    setTesting("");
+  }
+
+  async function submitGhToken() {
+    if (!ghToken.trim()) return;
+    setGhTokenSubmitting(true);
+    setGhTokenError("");
+    try {
+      const res = await api.loginGh(ghToken.trim());
+      if (res.data.ok) {
+        setGhToken("");
+        await testGhCli();
+      } else {
+        setGhTokenError(res.data.error || "Login failed");
+      }
+    } catch {
+      setGhTokenError("Connection failed");
+    }
+    setGhTokenSubmitting(false);
   }
 
   async function testKavela() {
@@ -466,6 +500,87 @@ export default function Setup({ onComplete }: SetupProps) {
                 </div>
               )}
 
+              {/* GitHub CLI Auth */}
+              <div
+                className={`flex items-center gap-3 p-3 rounded-lg border ${
+                  ghCliStatus?.ok
+                    ? "bg-green-950/30 border-green-800/50"
+                    : "bg-zinc-800/50 border-zinc-700/50"
+                }`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${
+                    ghCliStatus?.ok
+                      ? "bg-green-900/50 text-green-400"
+                      : "bg-zinc-700/50 text-zinc-400"
+                  }`}
+                >
+                  {ghCliStatus?.ok ? "\u2713" : "\u2717"}
+                </div>
+                <div className="flex-1">
+                  <p
+                    className={`text-sm font-medium ${ghCliStatus?.ok ? "text-green-300" : "text-zinc-300"}`}
+                  >
+                    {ghCliStatus?.ok
+                      ? `GitHub CLI connected${ghCliStatus.user ? ` as @${ghCliStatus.user}` : ""}`
+                      : "GitHub CLI not authenticated"}
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Used for creating pull requests
+                  </p>
+                </div>
+                {ghCliStatus?.ok && (
+                  <button
+                    onClick={testGhCli}
+                    disabled={testing === "ghcli"}
+                    className="text-xs bg-zinc-800 text-zinc-400 hover:text-zinc-200 px-3 py-1.5 rounded disabled:opacity-50"
+                  >
+                    {testing === "ghcli" ? "Testing..." : "Retest"}
+                  </button>
+                )}
+              </div>
+
+              {ghCliStatus && !ghCliStatus.ok && (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      placeholder="ghp_xxxxxxxxxxxx"
+                      value={ghToken}
+                      onChange={(e) => { setGhToken(e.target.value); setGhTokenError(""); }}
+                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-zinc-600"
+                    />
+                    <button
+                      onClick={submitGhToken}
+                      disabled={ghTokenSubmitting || !ghToken.trim()}
+                      className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                    >
+                      {ghTokenSubmitting ? "..." : "Authenticate"}
+                    </button>
+                  </div>
+                  {ghTokenError && <p className="text-xs text-red-400">{ghTokenError}</p>}
+                  <p className="text-xs text-zinc-600">
+                    Create a GitHub Personal Access Token:
+                    <span className="block mt-2 text-zinc-500 leading-relaxed space-y-1.5">
+                      <span className="block">
+                        <strong className="text-zinc-300">Option A:</strong>{" "}
+                        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">Fine-grained token</a>
+                        {" "}&mdash; scope to specific repos (own or org repos only)
+                        <br />
+                        <span className="text-zinc-600 text-[11px]">Permissions: Contents (R/W), Pull requests (R/W), Metadata (R). Org repos: add Members (R)</span>
+                      </span>
+                      <span className="block">
+                        <strong className="text-zinc-300">Option B:</strong>{" "}
+                        <a href="https://github.com/settings/tokens/new?scopes=repo,read:org&description=nightcode" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">Classic token</a>
+                        {" "}&mdash; needed for repos you{"'"}re a collaborator on
+                        <br />
+                        <span className="text-zinc-600 text-[11px]">Scopes: repo, read:org</span>
+                      </span>
+                    </span>
+                  </p>
+                </div>
+              )}
+
               <div className="flex gap-2 pt-2">
                 <button
                   onClick={() => setStep("claude")}
@@ -657,6 +772,12 @@ export default function Setup({ onComplete }: SetupProps) {
                     {status.github.ok ? "\u2713" : "\u2717"}
                   </span>{" "}
                   GitHub SSH
+                </p>
+                <p>
+                  <span className={ghCliStatus?.ok ? "text-green-400" : "text-red-400"}>
+                    {ghCliStatus?.ok ? "\u2713" : "\u2717"}
+                  </span>{" "}
+                  GitHub CLI
                 </p>
                 <p>
                   <span className={kavelaResult?.ok ? "text-green-400" : "text-zinc-600"}>

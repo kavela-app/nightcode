@@ -15,6 +15,7 @@ const createTaskSchema = z.object({
   priority: z.number().int().min(1).max(10).default(5),
   notes: z.string().optional(),
   scheduleId: z.number().int().positive().optional(),
+  parentTaskId: z.number().int().positive().optional(),
 });
 
 export function createTaskRoutes(executor: ExecutorPool) {
@@ -138,7 +139,17 @@ export function createTaskRoutes(executor: ExecutorPool) {
       .where(eq(schema.taskSteps.taskId, id))
       .all();
 
-    return c.json({ data: { ...task, steps } });
+    // Load Kavela skills if tracked
+    const skillsRow = db.select().from(schema.settings)
+      .where(eq(schema.settings.key, `task_${id}_kavela_skills`)).get();
+    let kavelaSkills: string[] = [];
+    try { if (skillsRow) kavelaSkills = JSON.parse(skillsRow.value); } catch {}
+
+    // Load subtasks
+    const subtasks = db.select().from(schema.tasks)
+      .where(eq(schema.tasks.parentTaskId, id)).all();
+
+    return c.json({ data: { ...task, steps, kavelaSkills, subtasks } });
   });
 
   // Create task
@@ -260,6 +271,47 @@ export function createTaskRoutes(executor: ExecutorPool) {
       .all();
 
     return c.json({ data: steps });
+  });
+
+  // Create a refinement subtask from feedback
+  app.post("/:id/refine", async (c) => {
+    const db = getDb();
+    const parentId = parseInt(c.req.param("id"), 10);
+    const { message } = await c.req.json<{ message: string }>();
+
+    if (!message) return c.json({ error: { code: "VALIDATION_ERROR", message: "message is required" } }, 400);
+
+    const parent = db.select().from(schema.tasks).where(eq(schema.tasks.id, parentId)).get();
+    if (!parent) return c.json({ error: { code: "NOT_FOUND", message: "Parent task not found" } }, 404);
+
+    // Create subtask inheriting repo, branch, session from parent
+    const subtask = db.insert(schema.tasks).values({
+      repoId: parent.repoId,
+      title: `Refine: ${parent.title}`,
+      prompt: `You are refining a previous task. The parent task "${parent.title}" has been completed${parent.prUrl ? ` and a PR was created at ${parent.prUrl}` : ""}.
+
+The user reviewed the work and has this feedback:
+
+${message}
+
+## Instructions
+- Resume from the same branch: ${parent.branchName || "check git status"}
+- Make the requested changes
+- The changes should be committed to the SAME branch as the parent task
+- Do NOT create a new PR — push to the existing branch so the PR updates automatically
+
+## Original task context
+${parent.prompt}`,
+      workflow: "implement-pr",
+      priority: parent.priority,
+      status: "pending",
+      branchName: parent.branchName,
+      sessionId: parent.sessionId,
+      scheduleId: parent.scheduleId,
+      parentTaskId: parentId,
+    }).returning().get();
+
+    return c.json({ data: subtask }, 201);
   });
 
   // Export task chat as Markdown

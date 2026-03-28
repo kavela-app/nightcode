@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { execFile } from "node:child_process";
 import { eq, and } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import { runClaude, type ClaudeStreamMessage } from "./claude-cli.js";
@@ -5,6 +8,7 @@ import {
   ensureRepo,
   createTaskBranch,
   generateBranchName,
+  checkoutExistingBranch,
 } from "./git-ops.js";
 import {
   generateMcpConfig,
@@ -41,6 +45,7 @@ export interface TaskContext {
   sessionId: string | null;
   notes: string | null;
   stepResults: Record<string, string>; // step name → result summary
+  kavelaSkills: string[]; // skills loaded from Kavela MCP
 }
 
 export interface RepoContext {
@@ -96,6 +101,16 @@ export async function executeWorkflow(
   // Ensure repo is cloned and up to date
   const workDir = await ensureRepo(repo.url, config.reposDir, repo.name);
 
+  // Run npm install in background (non-blocking) if package.json exists
+  const packageJsonPath = join(workDir, "package.json");
+  if (existsSync(packageJsonPath)) {
+    log.info({ taskId }, "Running npm install in background");
+    execFile("npm", ["install", "--prefer-offline"], { cwd: workDir, timeout: 120_000 }, (err) => {
+      if (err) log.warn({ taskId, error: err.message }, "npm install failed (non-blocking)");
+      else log.info({ taskId }, "npm install completed");
+    });
+  }
+
   // Create or resume branch
   let branchName = task.branchName;
   if (!branchName) {
@@ -105,6 +120,10 @@ export async function executeWorkflow(
       .set({ branchName, status: "running", startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
       .where(eq(schema.tasks.id, taskId))
       .run();
+  } else if (task.parentTaskId) {
+    // Subtask: checkout existing branch and pull latest
+    log.info({ taskId, branchName }, "Subtask: checking out existing branch");
+    await checkoutExistingBranch(workDir, branchName);
   }
 
   // Create step records if they don't exist
@@ -164,6 +183,7 @@ export async function executeWorkflow(
     sessionId,
     notes: task.notes,
     stepResults,
+    kavelaSkills: [],
   };
 
   const repoContext: RepoContext = {
@@ -413,6 +433,30 @@ async function executeStep(
       }
     }
 
+    // Extract Kavela skills loaded during this step
+    const skills = extractKavelaSkills(result.messages);
+    if (skills.length > 0) {
+      // Append to task notes as structured data for PR body / UI
+      const existing = db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).get();
+      const existingSkills: string[] = [];
+      try {
+        const parsed = JSON.parse(existing?.notes || "{}");
+        if (parsed._kavelaSkills) existingSkills.push(...parsed._kavelaSkills);
+      } catch { /* notes is plain text, not JSON */ }
+      const allSkills = [...new Set([...existingSkills, ...skills])];
+      // Store as a settings entry keyed by task ID
+      db.insert(schema.settings)
+        .values({ key: `task_${taskId}_kavela_skills`, value: JSON.stringify(allSkills) })
+        .onConflictDoUpdate({
+          target: schema.settings.key,
+          set: { value: JSON.stringify(allSkills), updatedAt: new Date().toISOString() },
+        })
+        .run();
+      // Also update task context for downstream steps (e.g., PR body)
+      task.kavelaSkills = allSkills;
+      log.info({ taskId, step: stepDef.name, skills: allSkills }, "Kavela skills loaded");
+    }
+
     log.info({ taskId, step: stepDef.name, sessionId: result.sessionId }, "Step completed");
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
@@ -448,15 +492,45 @@ async function executeStep(
   }
 }
 
-function extractPrUrl(messages: ClaudeStreamMessage[]): string | null {
+function extractKavelaSkills(messages: ClaudeStreamMessage[]): string[] {
+  const skills: string[] = [];
   for (const msg of messages) {
-    const content =
-      typeof msg.content === "string"
-        ? msg.content
-        : JSON.stringify(msg);
-    const match = content.match(
-      /https:\/\/github\.com\/[^\s)]+\/pull\/\d+/,
-    );
+    const blob = JSON.stringify(msg);
+    // Look for get_skill tool calls — the skill name is in the input
+    if (blob.includes("get_skill")) {
+      const nameMatch = blob.match(/"name"\s*:\s*"([^"]+)"/g);
+      if (nameMatch) {
+        for (const m of nameMatch) {
+          const val = m.match(/"name"\s*:\s*"([^"]+)"/);
+          if (val && val[1] !== "get_skill") skills.push(val[1]);
+        }
+      }
+    }
+    // Also catch check_context results which list skill names
+    if (blob.includes("check_context") && blob.includes("relevance")) {
+      const skillNames = blob.match(/\{name,([^}]+)\}/g) || [];
+      for (const s of skillNames) {
+        // Parse "name,domain,relevance,description" entries
+        const parts = s.replace(/[{}]/g, "").split(",");
+        if (parts[0] === "name" && parts.length > 1) continue; // header row
+      }
+      // Try to extract skill names from "Name (XX.X% relevance)" patterns
+      const relevanceMatches = [...blob.matchAll(/([A-Z][^,\n"]{5,60}),\w+,\d+\.\d+%/g)];
+      for (const rm of relevanceMatches) {
+        if (rm[1] && !skills.includes(rm[1])) skills.push(rm[1].trim());
+      }
+    }
+  }
+  return [...new Set(skills)];
+}
+
+function extractPrUrl(messages: ClaudeStreamMessage[]): string | null {
+  // Search the full JSON stringification of every message — the PR URL can be
+  // in assistant text, tool_result content, or nested message blocks
+  const PR_RE = /https:\/\/github\.com\/[^\s)"'\\]+\/pull\/\d+/;
+  for (const msg of [...messages].reverse()) {
+    const blob = JSON.stringify(msg);
+    const match = blob.match(PR_RE);
     if (match) return match[0];
   }
   return null;

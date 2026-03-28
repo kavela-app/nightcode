@@ -205,6 +205,22 @@ async function ensureRemoteSsh(workDir: string): Promise<void> {
   }
 }
 
+/**
+ * Checkout an existing branch and pull latest (for subtasks reusing a parent branch).
+ */
+export async function checkoutExistingBranch(
+  workDir: string,
+  branchName: string,
+): Promise<void> {
+  log.info({ branchName }, "Checking out existing branch for subtask");
+  await git(workDir, ["checkout", branchName]);
+  try {
+    await git(workDir, ["pull", "origin", branchName]);
+  } catch {
+    // Branch might not exist on remote yet, that's OK
+  }
+}
+
 async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, {
     cwd,

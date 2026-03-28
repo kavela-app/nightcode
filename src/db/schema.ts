@@ -62,6 +62,7 @@ export const tasks = sqliteTable("tasks", {
   maxRetries: integer("max_retries").notNull().default(2),
   notes: text("notes"), // User annotations between steps
   scheduleId: integer("schedule_id").references(() => schedules.id, { onDelete: "set null" }),
+  parentTaskId: integer("parent_task_id"), // Self-ref FK handled by migration, not Drizzle
   startedAt: text("started_at"),
   completedAt: text("completed_at"),
   createdAt: text("created_at")

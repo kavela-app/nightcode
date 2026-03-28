@@ -4,10 +4,19 @@ import { api } from "../api/client";
 export default function Settings() {
   const [claudeStatus, setClaudeStatus] = useState<{ ok: boolean; error?: string } | null>(null);
   const [githubStatus, setGithubStatus] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [ghCliStatus, setGhCliStatus] = useState<{ ok: boolean; user?: string; error?: string } | null>(null);
+  const [ghToken, setGhToken] = useState("");
+  const [ghTokenSubmitting, setGhTokenSubmitting] = useState(false);
+  const [ghTokenError, setGhTokenError] = useState("");
   const [kavelaKey, setKavelaKey] = useState("");
   const [kavelaPlaceholder, setKavelaPlaceholder] = useState("kav_xxxxx");
   const [kavelaStatus, setKavelaStatus] = useState<{ ok: boolean; error?: string } | null>(null);
   const [testing, setTesting] = useState("");
+
+  // Token rotation state
+  const [showRotateConfirm, setShowRotateConfirm] = useState(false);
+  const [newToken, setNewToken] = useState<string | null>(null);
+  const [rotating, setRotating] = useState(false);
 
   // Claude OAuth login state
   const [loginUrl, setLoginUrl] = useState<string | null>(null);
@@ -23,6 +32,7 @@ export default function Settings() {
   useEffect(() => {
     testClaude();
     testGithub();
+    testGhCli();
     loadSettings();
   }, []);
 
@@ -58,6 +68,35 @@ export default function Settings() {
       setGithubStatus({ ok: false, error: "Failed to test SSH" });
     }
     setTesting("");
+  }
+
+  async function testGhCli() {
+    setTesting("ghcli");
+    try {
+      const res = await api.testGhAuth();
+      setGhCliStatus(res.data);
+    } catch {
+      setGhCliStatus({ ok: false, error: "Failed to check gh CLI status" });
+    }
+    setTesting("");
+  }
+
+  async function submitGhToken() {
+    if (!ghToken.trim()) return;
+    setGhTokenSubmitting(true);
+    setGhTokenError("");
+    try {
+      const res = await api.loginGh(ghToken.trim());
+      if (res.data.ok) {
+        setGhToken("");
+        await testGhCli();
+      } else {
+        setGhTokenError(res.data.error || "Login failed");
+      }
+    } catch {
+      setGhTokenError("Connection failed");
+    }
+    setGhTokenSubmitting(false);
   }
 
   async function testKavela() {
@@ -297,6 +336,69 @@ export default function Settings() {
           )}
         </div>
 
+        {/* GitHub CLI */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-zinc-200">
+                GitHub CLI Authentication
+              </h3>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Required for creating PRs via <code className="text-zinc-400">gh</code> CLI
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {ghCliStatus && (
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full ${
+                    ghCliStatus.ok
+                      ? "bg-green-900/30 text-green-400"
+                      : "bg-red-900/30 text-red-400"
+                  }`}
+                >
+                  {ghCliStatus.ok
+                    ? `Connected${ghCliStatus.user ? ` as @${ghCliStatus.user}` : ""}`
+                    : "Not connected"}
+                </span>
+              )}
+              <button
+                onClick={testGhCli}
+                disabled={testing === "ghcli"}
+                className="text-xs bg-zinc-800 text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded disabled:opacity-50"
+              >
+                {testing === "ghcli" ? "Testing..." : "Test"}
+              </button>
+            </div>
+          </div>
+          {ghCliStatus && !ghCliStatus.ok && (
+            <div className="mt-3 space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  placeholder="ghp_xxxxxxxxxxxx"
+                  value={ghToken}
+                  onChange={(e) => { setGhToken(e.target.value); setGhTokenError(""); }}
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-zinc-600"
+                />
+                <button
+                  onClick={submitGhToken}
+                  disabled={ghTokenSubmitting || !ghToken.trim()}
+                  className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+                >
+                  {ghTokenSubmitting ? "..." : "Authenticate"}
+                </button>
+              </div>
+              {ghTokenError && <p className="text-xs text-red-400">{ghTokenError}</p>}
+              <p className="text-xs text-zinc-600">
+                <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">Fine-grained token</a>
+                {" "}for own/org repos (Contents + PRs R/W, Metadata R).{" "}
+                <a href="https://github.com/settings/tokens/new?scopes=repo,read:org&description=nightcode" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">Classic token</a>
+                {" "}for collaborator repos (repo + read:org).
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* Kavela MCP */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
@@ -347,6 +449,99 @@ export default function Settings() {
               kavela.ai/dashboard
             </a>
           </p>
+        </div>
+
+        {/* API Token */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-zinc-200">
+                API Auth Token
+              </h3>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Bearer token for API access. Shown once on rotation — store it securely.
+              </p>
+            </div>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/30 text-green-400">
+              Active
+            </span>
+          </div>
+
+          {/* Show newly generated token (one-time reveal) */}
+          {newToken && (
+            <div className="mt-3 space-y-2">
+              <div className="bg-green-950/30 border border-green-800/50 rounded-lg p-3">
+                <p className="text-xs text-green-400 font-medium mb-1">New token generated — copy it now, it won{"'"}t be shown again:</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs font-mono text-green-300 bg-zinc-950 px-2 py-1.5 rounded select-all break-all">
+                    {newToken}
+                  </code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(newToken);
+                    }}
+                    className="shrink-0 text-xs bg-green-900/50 text-green-300 hover:bg-green-900/70 px-3 py-1.5 rounded"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <button
+                  onClick={() => {
+                    // Save to localStorage and reload
+                    localStorage.setItem("nightcode_token", newToken);
+                    setNewToken(null);
+                    window.location.reload();
+                  }}
+                  className="mt-2 text-xs text-green-400 hover:text-green-300"
+                >
+                  I{"'"}ve copied it — dismiss and update session
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Rotate button / confirmation */}
+          {!newToken && !showRotateConfirm && (
+            <button
+              onClick={() => setShowRotateConfirm(true)}
+              className="mt-3 text-xs bg-zinc-800 text-zinc-400 hover:text-zinc-200 px-3 py-1.5 rounded"
+            >
+              Rotate Token
+            </button>
+          )}
+
+          {!newToken && showRotateConfirm && (
+            <div className="mt-3 bg-red-950/30 border border-red-900/50 rounded-lg p-3 space-y-2">
+              <p className="text-xs text-red-300">
+                This will invalidate the current token immediately. Any services using it (Lark bots, scripts, other sessions) will lose access.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    setRotating(true);
+                    try {
+                      const res = await api.rotateToken();
+                      setNewToken(res.data.token);
+                      setShowRotateConfirm(false);
+                    } catch {
+                      // If this fails the current token still works
+                    }
+                    setRotating(false);
+                  }}
+                  disabled={rotating}
+                  className="text-xs bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded disabled:opacity-50"
+                >
+                  {rotating ? "Rotating..." : "Yes, rotate token"}
+                </button>
+                <button
+                  onClick={() => setShowRotateConfirm(false)}
+                  className="text-xs text-zinc-400 hover:text-zinc-200 px-3 py-1.5"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
