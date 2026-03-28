@@ -38,11 +38,18 @@ export default function Settings() {
   const [nightcodeUrlStatus, setNightcodeUrlStatus] = useState<"untested" | "ok" | "failed">("untested");
   const [nightcodeUrlSaved, setNightcodeUrlSaved] = useState(false);
 
+  // Tailscale state
+  const [tsStatus, setTsStatus] = useState<{ installed: boolean; running: boolean; url: string | null } | null>(null);
+  const [tsAuthKey, setTsAuthKey] = useState("");
+  const [tsConnecting, setTsConnecting] = useState(false);
+  const [tsError, setTsError] = useState("");
+
   useEffect(() => {
     testClaude();
     testGithub();
     testGhCli();
     loadSettings();
+    checkTailscale();
   }, []);
 
   async function loadSettings() {
@@ -78,6 +85,47 @@ export default function Settings() {
       setNightcodeUrlSaved(true);
       setNightcodeUrlStatus(nightcodeUrl ? "ok" : "untested");
       setTimeout(() => setNightcodeUrlSaved(false), 2000);
+    } catch { /* ignore */ }
+  }
+
+  async function checkTailscale() {
+    try {
+      const res = await api.getTailscaleStatus();
+      setTsStatus(res.data);
+      if (res.data.url && !nightcodeUrl) {
+        setNightcodeUrl(res.data.url);
+        setNightcodeUrlStatus("ok");
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function handleTsConnect() {
+    if (!tsAuthKey.trim()) return;
+    setTsConnecting(true);
+    setTsError("");
+    try {
+      const res = await api.connectTailscale(tsAuthKey.trim());
+      if (res.data.ok) {
+        setTsAuthKey("");
+        if (res.data.url) {
+          setNightcodeUrl(res.data.url);
+          setNightcodeUrlStatus("ok");
+          setNightcodeUrlSaved(true);
+        }
+        await checkTailscale();
+      } else {
+        setTsError(res.data.error || "Connection failed");
+      }
+    } catch {
+      setTsError("Connection failed");
+    }
+    setTsConnecting(false);
+  }
+
+  async function handleTsDisconnect() {
+    try {
+      await api.disconnectTailscale();
+      await checkTailscale();
     } catch { /* ignore */ }
   }
 
@@ -526,30 +574,96 @@ export default function Settings() {
             </div>
             <span
               className={`text-xs px-2 py-0.5 rounded-full ${
-                nightcodeUrl && nightcodeUrlStatus === "ok"
+                tsStatus?.running
                   ? "bg-green-900/30 text-green-400"
-                  : "bg-zinc-800 text-zinc-500"
+                  : nightcodeUrl && nightcodeUrlStatus === "ok"
+                    ? "bg-green-900/30 text-green-400"
+                    : "bg-zinc-800 text-zinc-500"
               }`}
             >
-              {nightcodeUrl ? "Public" : "Local only"}
+              {tsStatus?.running ? "Connected" : nightcodeUrl ? "Public" : "Local only"}
             </span>
           </div>
 
-          {!nightcodeUrl && (
-            <div className="bg-zinc-800/50 rounded-lg p-3 text-xs text-zinc-400 space-y-2 mb-3">
-              <p className="font-medium text-zinc-300">Quick setup with Tailscale (free):</p>
-              <div className="space-y-1.5 font-mono">
-                <p><span className="text-zinc-600 select-none">1.</span> <code className="text-zinc-300">curl -fsSL https://tailscale.com/install.sh | sh</code></p>
-                <p><span className="text-zinc-600 select-none">2.</span> <code className="text-zinc-300">tailscale up</code></p>
-                <p><span className="text-zinc-600 select-none">3.</span> <code className="text-zinc-300">tailscale funnel 3777</code></p>
+          {/* Tailscale installed + connected */}
+          {tsStatus?.installed && tsStatus.running && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-3 rounded-lg border bg-green-950/30 border-green-800/50">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm bg-green-900/50 text-green-400">
+                  {"\u2713"}
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-green-300">Tailscale connected</p>
+                  {tsStatus.url && (
+                    <p className="text-xs text-green-400/70 font-mono mt-0.5">{tsStatus.url}</p>
+                  )}
+                </div>
+                <button
+                  onClick={handleTsDisconnect}
+                  className="text-xs bg-zinc-800 text-zinc-400 hover:text-red-400 px-3 py-1.5 rounded"
+                >
+                  Disconnect
+                </button>
               </div>
-              <p className="text-zinc-500 mt-1">
-                Copy the HTTPS URL from the output and paste it below.
-                For Docker sidecar setup, see <code className="text-zinc-400">docker-compose.tailscale.yml</code>.
-              </p>
             </div>
           )}
 
+          {/* Tailscale installed but not connected */}
+          {tsStatus?.installed && !tsStatus.running && (
+            <div className="space-y-3 mb-3">
+              <div className="bg-zinc-800/50 rounded-lg p-3 text-xs text-zinc-400 space-y-2">
+                <p className="font-medium text-zinc-300">Tailscale is available. Paste your auth key to connect.</p>
+                <p className="text-zinc-500">
+                  Generate a key at{" "}
+                  <a href="https://login.tailscale.com/admin/settings/keys" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
+                    Tailscale Admin &rarr; Settings &rarr; Keys
+                  </a>
+                  {" "}(enable "Reusable" and "Ephemeral" as needed).
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  placeholder="tskey-auth-xxxxx"
+                  value={tsAuthKey}
+                  onChange={(e) => { setTsAuthKey(e.target.value); setTsError(""); }}
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-zinc-600"
+                />
+                <button
+                  onClick={handleTsConnect}
+                  disabled={tsConnecting || !tsAuthKey.trim()}
+                  className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+                >
+                  {tsConnecting ? "Connecting..." : "Connect"}
+                </button>
+              </div>
+              {tsError && <p className="text-xs text-red-400">{tsError}</p>}
+            </div>
+          )}
+
+          {/* Tailscale not installed */}
+          {tsStatus && !tsStatus.installed && !nightcodeUrl && (
+            <div className="bg-zinc-800/50 rounded-lg p-3 text-xs text-zinc-400 space-y-3 mb-3">
+              <div>
+                <p className="font-medium text-zinc-300 mb-1">Option A: Built-in Tailscale (recommended)</p>
+                <div className="space-y-1 font-mono">
+                  <p><code className="text-zinc-300">docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d --build</code></p>
+                </div>
+                <p className="text-zinc-500 mt-1">Installs Tailscale inside the container. Configure from this page after rebuild.</p>
+              </div>
+              <div className="border-t border-zinc-700 pt-3">
+                <p className="font-medium text-zinc-300 mb-1">Option B: Host-level Tailscale</p>
+                <div className="space-y-1.5 font-mono">
+                  <p><span className="text-zinc-600 select-none">1.</span> <code className="text-zinc-300">curl -fsSL https://tailscale.com/install.sh | sh</code></p>
+                  <p><span className="text-zinc-600 select-none">2.</span> <code className="text-zinc-300">tailscale up</code></p>
+                  <p><span className="text-zinc-600 select-none">3.</span> <code className="text-zinc-300">tailscale funnel 3777</code></p>
+                </div>
+                <p className="text-zinc-500 mt-1">Copy the HTTPS URL from the output and paste it below.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Manual URL input (always shown) */}
           <div className="flex gap-2">
             <input
               type="text"

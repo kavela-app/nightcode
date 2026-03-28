@@ -38,6 +38,12 @@ export default function Setup({ onComplete }: SetupProps) {
   const [publicUrl, setPublicUrl] = useState("");
   const [publicUrlSaved, setPublicUrlSaved] = useState(false);
 
+  // Tailscale state
+  const [tsStatus, setTsStatus] = useState<{ installed: boolean; running: boolean; url: string | null } | null>(null);
+  const [tsAuthKey, setTsAuthKey] = useState("");
+  const [tsConnecting, setTsConnecting] = useState(false);
+  const [tsError, setTsError] = useState("");
+
   useEffect(() => {
     loadStatus();
     testGhCli();
@@ -121,6 +127,46 @@ export default function Setup({ onComplete }: SetupProps) {
     }
     setTesting("");
   }
+
+  async function checkTailscale() {
+    try {
+      const res = await api.getTailscaleStatus();
+      setTsStatus(res.data);
+      if (res.data.url) {
+        setPublicUrl(res.data.url);
+        setPublicUrlSaved(true);
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function handleTsConnect() {
+    if (!tsAuthKey.trim()) return;
+    setTsConnecting(true);
+    setTsError("");
+    try {
+      const res = await api.connectTailscale(tsAuthKey.trim());
+      if (res.data.ok) {
+        setTsAuthKey("");
+        if (res.data.url) {
+          setPublicUrl(res.data.url);
+          setPublicUrlSaved(true);
+        }
+        await checkTailscale();
+      } else {
+        setTsError(res.data.error || "Connection failed");
+      }
+    } catch {
+      setTsError("Connection failed");
+    }
+    setTsConnecting(false);
+  }
+
+  // Check Tailscale when entering the access step
+  useEffect(() => {
+    if (step === "access") {
+      checkTailscale();
+    }
+  }, [step]);
 
   async function addRepo() {
     setRepoError("");
@@ -766,44 +812,113 @@ export default function Setup({ onComplete }: SetupProps) {
                 anywhere.
               </p>
 
-              <div className="bg-zinc-800/50 rounded-lg p-3 text-xs text-zinc-400 space-y-2">
-                <p className="font-medium text-zinc-300">Setup with Tailscale (free):</p>
-                <p>1. Install Tailscale: <code className="bg-zinc-900 px-1 rounded">curl -fsSL https://tailscale.com/install.sh | sh</code></p>
-                <p>2. Enable Funnel: <code className="bg-zinc-900 px-1 rounded">tailscale funnel 3777</code></p>
-                <p>3. Copy the HTTPS URL below (e.g., <code className="bg-zinc-900 px-1 rounded">https://machine.tail1234.ts.net</code>)</p>
-                <p className="text-zinc-500 mt-1">
-                  Or use the Docker sidecar — see <code className="text-zinc-400">docker-compose.tailscale.yml</code>
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs text-zinc-500 block">
-                  Public URL
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="https://nightcode.your-tailnet.ts.net"
-                    value={publicUrl}
-                    onChange={(e) => { setPublicUrl(e.target.value); setPublicUrlSaved(false); }}
-                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-zinc-600"
-                  />
-                  {publicUrl && (
-                    <button
-                      onClick={async () => {
-                        await api.updateSettings({ nightcode_url: publicUrl.replace(/\/+$/, "") });
-                        setPublicUrlSaved(true);
-                      }}
-                      className="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 rounded-lg text-sm"
-                    >
-                      {publicUrlSaved ? "Saved!" : "Save"}
-                    </button>
-                  )}
+              {/* Tailscale installed + connected */}
+              {tsStatus?.installed && tsStatus.running && (
+                <div className="flex items-center gap-3 p-3 rounded-lg border bg-green-950/30 border-green-800/50">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm bg-green-900/50 text-green-400">
+                    {"\u2713"}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-green-300">Tailscale is connected!</p>
+                    {tsStatus.url && (
+                      <p className="text-xs text-green-400/70 font-mono mt-0.5">{tsStatus.url}</p>
+                    )}
+                  </div>
                 </div>
-                <p className="text-xs text-zinc-600">
-                  Used in PR backlinks, agent API, and Lark integration. Can be changed later in Settings.
-                </p>
-              </div>
+              )}
+
+              {/* Tailscale installed but not connected */}
+              {tsStatus?.installed && !tsStatus.running && (
+                <div className="space-y-3">
+                  <div className="bg-zinc-800/50 rounded-lg p-3 text-xs text-zinc-400 space-y-2">
+                    <p className="font-medium text-zinc-300">Tailscale is available. Paste your auth key to connect.</p>
+                    <p className="text-zinc-500">
+                      Generate a key at{" "}
+                      <a href="https://login.tailscale.com/admin/settings/keys" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
+                        Tailscale Admin &rarr; Settings &rarr; Keys
+                      </a>
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      placeholder="tskey-auth-xxxxx"
+                      value={tsAuthKey}
+                      onChange={(e) => { setTsAuthKey(e.target.value); setTsError(""); }}
+                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-zinc-600"
+                    />
+                    <button
+                      onClick={handleTsConnect}
+                      disabled={tsConnecting || !tsAuthKey.trim()}
+                      className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                    >
+                      {tsConnecting ? "Connecting..." : "Connect"}
+                    </button>
+                  </div>
+                  {tsError && <p className="text-xs text-red-400">{tsError}</p>}
+                </div>
+              )}
+
+              {/* Tailscale not installed */}
+              {tsStatus && !tsStatus.installed && (
+                <div className="bg-zinc-800/50 rounded-lg p-3 text-xs text-zinc-400 space-y-3">
+                  <div>
+                    <p className="font-medium text-zinc-300 mb-1">Option A: Built-in Tailscale (recommended for VPS)</p>
+                    <p className="font-mono">
+                      <code className="text-zinc-300 bg-zinc-900 px-1 rounded text-[11px]">docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d --build</code>
+                    </p>
+                    <p className="text-zinc-500 mt-1">Installs Tailscale inside the container. Return to this page after rebuild.</p>
+                  </div>
+                  <div className="border-t border-zinc-700 pt-3">
+                    <p className="font-medium text-zinc-300 mb-1">Option B: Host-level Tailscale (for local machines)</p>
+                    <div className="space-y-1.5 font-mono">
+                      <p><span className="text-zinc-600 select-none">1.</span> <code className="text-zinc-300">curl -fsSL https://tailscale.com/install.sh | sh</code></p>
+                      <p><span className="text-zinc-600 select-none">2.</span> <code className="text-zinc-300">tailscale up</code></p>
+                      <p><span className="text-zinc-600 select-none">3.</span> <code className="text-zinc-300">tailscale funnel 3777</code></p>
+                    </div>
+                    <p className="text-zinc-500 mt-1">Copy the HTTPS URL from the output and paste it below.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Still loading Tailscale status */}
+              {!tsStatus && (
+                <div className="bg-zinc-800/50 rounded-lg p-3 text-xs text-zinc-500">
+                  Checking Tailscale status...
+                </div>
+              )}
+
+              {/* Manual URL input (always shown unless Tailscale is connected with URL) */}
+              {!(tsStatus?.running && tsStatus.url) && (
+                <div className="space-y-2">
+                  <label className="text-xs text-zinc-500 block">
+                    Public URL
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="https://nightcode.your-tailnet.ts.net"
+                      value={publicUrl}
+                      onChange={(e) => { setPublicUrl(e.target.value); setPublicUrlSaved(false); }}
+                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-zinc-600"
+                    />
+                    {publicUrl && (
+                      <button
+                        onClick={async () => {
+                          await api.updateSettings({ nightcode_url: publicUrl.replace(/\/+$/, "") });
+                          setPublicUrlSaved(true);
+                        }}
+                        className="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 rounded-lg text-sm"
+                      >
+                        {publicUrlSaved ? "Saved!" : "Save"}
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs text-zinc-600">
+                    Used in PR backlinks, agent API, and Lark integration. Can be changed later in Settings.
+                  </p>
+                </div>
+              )}
 
               <div className="flex gap-2 pt-2">
                 <button
@@ -819,7 +934,7 @@ export default function Setup({ onComplete }: SetupProps) {
                     : "px-4 py-2.5 text-sm text-zinc-500 hover:text-zinc-300"
                   }
                 >
-                  {publicUrlSaved ? "Next" : "Skip — keep local only"}
+                  {publicUrlSaved ? "Next" : "Skip \u2014 keep local only"}
                 </button>
               </div>
             </div>

@@ -15,6 +15,7 @@ import { getDb, schema } from "../db/index.js";
 import { testClaudeAuth, startClaudeLogin, submitClaudeAuthCode, setClaudeApiKey, resetClaudeLogin } from "../executor/claude-cli.js";
 import { testSshAccess } from "../executor/git-ops.js";
 import { testGhAuth, loginGhWithToken } from "../executor/gh-auth.js";
+import { getTailscaleStatus, connectTailscale, disconnectTailscale } from "../executor/tailscale.js";
 import type { NightcodeConfig } from "../config/index.js";
 import type { ExecutorPool } from "../executor/index.js";
 import type { Scheduler } from "../scheduler/index.js";
@@ -127,6 +128,37 @@ export function createApp(
     const { token } = await c.req.json<{ token: string }>();
     if (!token) return c.json({ data: { ok: false, error: "Token is required" } }, 400);
     const result = await loginGhWithToken(token);
+    return c.json({ data: result });
+  });
+
+  // Tailscale status (no auth required — needed for onboarding)
+  app.get("/api/setup/tailscale-status", async (c) => {
+    const status = await getTailscaleStatus();
+    return c.json({ data: status });
+  });
+
+  // Connect Tailscale (no auth required — needed for onboarding)
+  app.post("/api/setup/tailscale-connect", async (c) => {
+    const { authKey } = await c.req.json<{ authKey: string }>();
+    if (!authKey) return c.json({ data: { ok: false, error: "Auth key is required" } }, 400);
+
+    const result = await connectTailscale(authKey);
+
+    // Auto-save the URL to settings if successful
+    if (result.ok && result.url) {
+      const db = getDb();
+      db.insert(schema.settings)
+        .values({ key: "nightcode_url", value: result.url })
+        .onConflictDoUpdate({ target: schema.settings.key, set: { value: result.url, updatedAt: new Date().toISOString() } })
+        .run();
+    }
+
+    return c.json({ data: result });
+  });
+
+  // Disconnect Tailscale (no auth required — needed for onboarding)
+  app.post("/api/setup/tailscale-disconnect", async (c) => {
+    const result = await disconnectTailscale();
     return c.json({ data: result });
   });
 

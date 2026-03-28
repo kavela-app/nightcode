@@ -52,6 +52,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ token }),
     }),
+  getTailscaleStatus: () =>
+    request<{ data: { installed: boolean; running: boolean; url: string | null; hostname: string | null; error?: string } }>("/setup/tailscale-status"),
+  connectTailscale: (authKey: string) =>
+    request<{ data: { ok: boolean; url: string | null; error?: string } }>("/setup/tailscale-connect", {
+      method: "POST",
+      body: JSON.stringify({ authKey }),
+    }),
+  disconnectTailscale: () =>
+    request<{ data: { ok: boolean; error?: string } }>("/setup/tailscale-disconnect", { method: "POST" }),
 
   // Dashboard
   getStats: () => request<{ data: DashboardStats }>("/dashboard/stats"),
