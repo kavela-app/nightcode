@@ -29,6 +29,10 @@ export default function Settings() {
   const [apiKeySubmitting, setApiKeySubmitting] = useState(false);
   const [apiKeyError, setApiKeyError] = useState("");
 
+  // Custom system prompt
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [customPromptSaved, setCustomPromptSaved] = useState(false);
+
   useEffect(() => {
     testClaude();
     testGithub();
@@ -43,9 +47,20 @@ export default function Settings() {
         setKavelaStatus({ ok: true });
         setKavelaPlaceholder(res.data.kavela_api_key);
       }
+      if (res.data?.custom_system_prompt) {
+        setCustomPrompt(res.data.custom_system_prompt);
+      }
     } catch {
       // Settings not available yet
     }
+  }
+
+  async function saveCustomPrompt() {
+    try {
+      await api.updateSettings({ custom_system_prompt: customPrompt });
+      setCustomPromptSaved(true);
+      setTimeout(() => setCustomPromptSaved(false), 2000);
+    } catch { /* ignore */ }
   }
 
   async function testClaude() {
@@ -449,6 +464,35 @@ export default function Settings() {
               kavela.ai/dashboard
             </a>
           </p>
+        </div>
+
+        {/* Custom System Prompt */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h3 className="text-sm font-medium text-zinc-200">
+                Custom System Prompt
+              </h3>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Prepended to every task step — like a CLAUDE.md for all nightcode tasks
+              </p>
+            </div>
+            {customPromptSaved && (
+              <span className="text-xs text-green-400">Saved</span>
+            )}
+          </div>
+          <textarea
+            value={customPrompt}
+            onChange={(e) => { setCustomPrompt(e.target.value); setCustomPromptSaved(false); }}
+            placeholder={"e.g., Always use TypeScript strict mode. Prefer server components over client components. Follow the team's error handling patterns from the API design doc."}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm h-32 resize-y font-mono focus:outline-none focus:border-zinc-600"
+          />
+          <button
+            onClick={saveCustomPrompt}
+            className="mt-2 bg-zinc-700 hover:bg-zinc-600 text-white px-3 py-1.5 rounded text-sm"
+          >
+            Save Prompt
+          </button>
         </div>
 
         {/* API Token */}

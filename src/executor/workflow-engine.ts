@@ -338,6 +338,12 @@ async function executeStep(
   const prompt = stepDef.buildPrompt(task, repo);
   let systemPrompt = stepDef.systemPrompt(repo);
 
+  // Inject custom system prompt from settings (user-defined, like a CLAUDE.md)
+  const customPromptRow = db.select().from(schema.settings).where(eq(schema.settings.key, "custom_system_prompt")).get();
+  if (customPromptRow?.value) {
+    systemPrompt = `${customPromptRow.value}\n\n${systemPrompt}`;
+  }
+
   // Add Kavela system prompt if MCP is configured
   // Resolve Kavela API key for system prompt: prefer env var, fall back to database settings
   let resolvedKavelaKey = config.kavela.apiKey;
@@ -345,7 +351,7 @@ async function executeStep(
     const kavelaRow = getDb().select().from(schema.settings).where(eq(schema.settings.key, "kavela_api_key")).get();
     if (kavelaRow) resolvedKavelaKey = kavelaRow.value;
   }
-  const kavelaPrompt = buildKavelaSystemPrompt(!!resolvedKavelaKey);
+  const kavelaPrompt = buildKavelaSystemPrompt(!!resolvedKavelaKey, repo.url);
   if (kavelaPrompt) {
     systemPrompt = `${systemPrompt}\n\n${kavelaPrompt}`;
   }
