@@ -140,6 +140,7 @@ function runMigrations(sqlite: Database.Database) {
   try { sqlite.exec("ALTER TABLE tasks ADD COLUMN parent_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL"); } catch {}
   try { sqlite.exec("ALTER TABLE tasks ADD COLUMN additional_repo_ids TEXT"); } catch {}
   try { sqlite.exec("ALTER TABLE tasks ADD COLUMN additional_pr_urls TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE tasks ADD COLUMN recurring INTEGER DEFAULT 0"); } catch {}
 }
 
 export { schema };

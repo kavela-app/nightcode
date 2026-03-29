@@ -17,6 +17,7 @@ const createTaskSchema = z.object({
   scheduleId: z.number().int().positive().optional(),
   parentTaskId: z.number().int().positive().optional(),
   additionalRepoIds: z.array(z.number().int().positive()).optional(),
+  recurring: z.boolean().optional(),
 });
 
 export function createTaskRoutes(executor: ExecutorPool) {

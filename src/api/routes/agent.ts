@@ -93,7 +93,7 @@ AVAILABLE ACTIONS:
 - create_repo: { "name": string, "url": string, "branch"?: string }
 - list_repos: {}
 - delete_repo: { "repo_id": number }
-- create_task: { "repo_id": number, "title": string, "prompt": string, "workflow"?: "implement-pr"|"plan-implement-pr"|"plan-audit-implement-pr", "priority"?: 1-10, "additional_repo_ids"?: number[] }
+- create_task: { "repo_id": number, "title": string, "prompt": string, "workflow"?: "implement-pr"|"plan-implement-pr"|"plan-audit-implement-pr", "priority"?: 1-10, "additional_repo_ids"?: number[], "recurring"?: boolean }
 - run_task: { "task_id": number }
 - pause_task: { "task_id": number }
 - cancel_task: { "task_id": number }
@@ -167,6 +167,7 @@ async function executeAction(
         return { reply: `Repo id=${repoId} not found.`, action: "create_task", data: { error: "repo_not_found" } };
       }
       const additionalRepoIds = params.additional_repo_ids as number[] | undefined;
+      const recurring = params.recurring as boolean | undefined;
       const result = db
         .insert(schema.tasks)
         .values({
@@ -176,6 +177,7 @@ async function executeAction(
           workflow: (params.workflow as string) || "plan-implement-pr",
           priority: (params.priority as number) || 5,
           additionalRepoIds: additionalRepoIds?.length ? JSON.stringify(additionalRepoIds) : null,
+          recurring: recurring || false,
         })
         .returning()
         .get();

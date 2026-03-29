@@ -65,6 +65,7 @@ export const tasks = sqliteTable("tasks", {
   parentTaskId: integer("parent_task_id"), // Self-ref FK handled by migration, not Drizzle
   additionalRepoIds: text("additional_repo_ids"), // JSON array of repo IDs
   additionalPrUrls: text("additional_pr_urls"),   // JSON array of PR URLs
+  recurring: integer("recurring", { mode: "boolean" }).default(false),
   startedAt: text("started_at"),
   completedAt: text("completed_at"),
   createdAt: text("created_at")

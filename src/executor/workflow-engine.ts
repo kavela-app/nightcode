@@ -338,6 +338,24 @@ export async function executeWorkflow(
     .where(eq(schema.tasks.id, taskId))
     .run();
 
+  // If this is a recurring task, create a fresh copy for next run
+  if (task.recurring) {
+    log.info({ taskId }, "Recurring task — creating next occurrence");
+    db.insert(schema.tasks).values({
+      repoId: task.repoId,
+      title: task.title,
+      prompt: task.prompt,
+      workflow: task.workflow,
+      priority: task.priority,
+      status: "pending",
+      scheduleId: task.scheduleId,
+      recurring: true,
+      additionalRepoIds: task.additionalRepoIds,
+      parentTaskId: null, // Not a subtask
+      notes: null,
+    }).run();
+  }
+
   taskEventBus.emit("task", {
     taskId,
     type: "task_update",

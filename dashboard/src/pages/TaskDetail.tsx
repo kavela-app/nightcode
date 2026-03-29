@@ -342,6 +342,9 @@ export default function TaskDetail() {
           )}
           <p className="text-sm text-zinc-500 mt-1">
             {task.workflow} &middot; P{task.priority} &middot; {task.status}
+            {task.recurring && (
+              <span className="ml-2 text-[10px] bg-green-900/30 text-green-400 px-1.5 py-0.5 rounded">recurring</span>
+            )}
           </p>
         </div>
         <div className="flex gap-2">

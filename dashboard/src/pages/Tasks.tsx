@@ -26,6 +26,7 @@ export default function Tasks() {
     workflow: "plan-implement-pr",
     priority: 5,
     scheduleId: 0,
+    recurring: false,
   });
   const [creatingRepo, setCreatingRepo] = useState(false);
   const [newRepo, setNewRepo] = useState({ name: "", url: "", branch: "main" });
@@ -66,6 +67,7 @@ export default function Tasks() {
       workflow: form.workflow,
       priority: form.priority,
       scheduleId: form.scheduleId || undefined,
+      recurring: form.recurring || undefined,
     };
     if (form.additionalRepoIds.length > 0) {
       taskData.additionalRepoIds = form.additionalRepoIds;
@@ -235,6 +237,15 @@ export default function Tasks() {
             className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm h-28 resize-y"
             required
           />
+          <label className="flex items-center gap-2 text-sm text-zinc-400">
+            <input
+              type="checkbox"
+              checked={form.recurring || false}
+              onChange={(e) => setForm({ ...form, recurring: e.target.checked })}
+              className="rounded bg-zinc-800 border-zinc-700"
+            />
+            Recurring — re-create after completion
+          </label>
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -329,6 +340,9 @@ export default function Tasks() {
                       ) : null;
                     } catch { return null; }
                   })()}
+                  {task.recurring && (
+                    <span className="text-[10px] bg-green-900/30 text-green-400 px-1.5 py-0.5 rounded">recurring</span>
+                  )}
                   {task.currentStep && (
                     <span className="text-xs text-zinc-500">
                       step: {task.currentStep}

@@ -175,6 +175,7 @@ export interface Task {
   sessionId: string | null;
   scheduleId: number | null;
   parentTaskId: number | null;
+  recurring: boolean;
   error: string | null;
   retryCount: number;
   notes: string | null;
@@ -212,7 +213,7 @@ export interface Schedule {
 }
 
 export type CreateRepoInput = { name: string; url: string; branch?: string; systemPrompt?: string };
-export type CreateTaskInput = { repoId: number; title: string; prompt: string; workflow?: string; priority?: number; scheduleId?: number; additionalRepoIds?: number[] };
+export type CreateTaskInput = { repoId: number; title: string; prompt: string; workflow?: string; priority?: number; scheduleId?: number; additionalRepoIds?: number[]; recurring?: boolean };
 export interface SetupStatus {
   needsSetup: boolean;
   claude: { ok: boolean; error?: string };
