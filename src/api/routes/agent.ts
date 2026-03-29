@@ -153,7 +153,11 @@ async function executeAction(
 
     case "list_repos": {
       const repos = db.select().from(schema.repos).all();
-      return { reply: `Found ${repos.length} repo(s).`, action: "list_repos", data: repos };
+      const lines = repos.map(r => `#${r.id} "${r.name}" — ${r.url} (branch: ${r.branch})`);
+      const summary = repos.length === 0
+        ? "No repos configured yet."
+        : `${repos.length} repo(s):\n\n${lines.join("\n")}`;
+      return { reply: summary, action: "list_repos", data: repos };
     }
 
     case "create_task": {
@@ -209,9 +213,22 @@ async function executeAction(
 
     case "list_tasks": {
       const allTasks = db.select().from(schema.tasks).all();
+      const allRepos = db.select().from(schema.repos).all();
+      const repoMap = new Map(allRepos.map(r => [r.id, r.name]));
       const statusFilter = params.status as string | undefined;
       const filtered = statusFilter ? allTasks.filter((t) => t.status === statusFilter) : allTasks;
-      return { reply: `Found ${filtered.length} task(s)${statusFilter ? ` with status "${statusFilter}"` : ""}.`, action: "list_tasks", data: filtered };
+      const lines = filtered.map(t => {
+        const repo = repoMap.get(t.repoId) || "unknown";
+        let line = `#${t.id} "${t.title}" — ${repo} [${t.status}] P${t.priority}`;
+        if (t.prUrl) line += ` → PR: ${t.prUrl}`;
+        if (t.currentStep) line += ` (step: ${t.currentStep})`;
+        if (t.error) line += ` ⚠ ${t.error.slice(0, 80)}`;
+        return line;
+      });
+      const summary = filtered.length === 0
+        ? `No tasks found${statusFilter ? ` with status "${statusFilter}"` : ""}.`
+        : `${filtered.length} task(s)${statusFilter ? ` (${statusFilter})` : ""}:\n\n${lines.join("\n")}`;
+      return { reply: summary, action: "list_tasks", data: filtered };
     }
 
     case "get_stats": {
@@ -226,7 +243,16 @@ async function executeAction(
         schedules: state.schedules.length,
         executorRunning: executor.runningCount,
       };
-      return { reply: `Stats: ${stats.repos} repos, ${stats.totalTasks} tasks (${stats.running} running, ${stats.completed} completed, ${stats.failed} failed), ${stats.schedules} schedules.`, action: "get_stats", data: stats };
+      const recentPrs = state.recentCompleted.filter(t => t.prUrl).slice(0, 3);
+      let reply = `📊 nightcode stats:\n\n`;
+      reply += `Repos: ${stats.repos}\n`;
+      reply += `Tasks: ${stats.totalTasks} total — ${stats.running} running, ${stats.pending} pending, ${stats.completed} completed, ${stats.failed} failed\n`;
+      reply += `Schedules: ${stats.schedules}\n`;
+      reply += `Executor: ${stats.executorRunning} task(s) running now`;
+      if (recentPrs.length > 0) {
+        reply += `\n\nRecent PRs:\n${recentPrs.map(t => `• "${t.title}" → ${t.prUrl}`).join("\n")}`;
+      }
+      return { reply, action: "get_stats", data: stats };
     }
 
     case "create_schedule": {
@@ -282,7 +308,15 @@ async function executeAction(
 
     case "list_schedules": {
       const schedules = db.select().from(schema.schedules).all();
-      return { reply: `Found ${schedules.length} schedule(s).`, action: "list_schedules", data: schedules };
+      const lines = schedules.map(s => {
+        const interval = s.intervalMinutes ? `every ${s.intervalMinutes}min` : s.cronExpr || "no schedule";
+        const window = s.windowStart && s.windowEnd ? ` (${s.windowStart}–${s.windowEnd} ${s.timezone})` : "";
+        return `#${s.id} "${s.name}" — ${interval}${window} [${s.enabled ? "enabled" : "disabled"}]${s.nextRun ? ` next: ${new Date(s.nextRun).toLocaleString()}` : ""}`;
+      });
+      const summary = schedules.length === 0
+        ? "No schedules configured."
+        : `${schedules.length} schedule(s):\n\n${lines.join("\n")}`;
+      return { reply: summary, action: "list_schedules", data: schedules };
     }
 
     case "toggle_schedule": {
