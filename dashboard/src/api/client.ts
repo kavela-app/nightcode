@@ -169,6 +169,9 @@ export interface Task {
   branchName: string | null;
   prUrl: string | null;
   prNumber: number | null;
+  additionalRepoIds: number[] | null;
+  additionalPrUrls: string[] | null;
+  additionalRepos?: Repo[];  // Resolved by server
   sessionId: string | null;
   scheduleId: number | null;
   parentTaskId: number | null;
@@ -209,7 +212,7 @@ export interface Schedule {
 }
 
 export type CreateRepoInput = { name: string; url: string; branch?: string; systemPrompt?: string };
-export type CreateTaskInput = { repoId: number; title: string; prompt: string; workflow?: string; priority?: number; scheduleId?: number };
+export type CreateTaskInput = { repoId: number; title: string; prompt: string; workflow?: string; priority?: number; scheduleId?: number; additionalRepoIds?: number[] };
 export interface SetupStatus {
   needsSetup: boolean;
   claude: { ok: boolean; error?: string };

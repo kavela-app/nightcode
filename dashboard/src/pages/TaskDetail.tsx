@@ -331,6 +331,15 @@ export default function TaskDetail() {
             </Link>
           )}
           <h2 className="text-xl font-semibold">{task.title}</h2>
+          {(task as any).additionalRepos?.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {(task as any).additionalRepos.map((r: any) => (
+                <span key={r.id} className="text-xs bg-blue-900/30 text-blue-400 border border-blue-800/50 px-2 py-0.5 rounded">
+                  {r.name}
+                </span>
+              ))}
+            </div>
+          )}
           <p className="text-sm text-zinc-500 mt-1">
             {task.workflow} &middot; P{task.priority} &middot; {task.status}
           </p>
@@ -389,6 +398,22 @@ export default function TaskDetail() {
               {task.prNumber ? `PR #${task.prNumber}` : "View Pull Request"}
             </a>
           )}
+          {task.additionalPrUrls && (() => {
+            try {
+              const urls = typeof task.additionalPrUrls === 'string' ? JSON.parse(task.additionalPrUrls) : task.additionalPrUrls;
+              return (urls as string[]).map((url: string, i: number) => (
+                <a
+                  key={i}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-zinc-100 px-3 py-2 rounded-md text-sm font-medium transition-colors ml-2"
+                >
+                  PR #{url.split("/").pop()}
+                </a>
+              ));
+            } catch { return null; }
+          })()}
           {task.branchName && (
             <div className="mt-2">
               <code className="text-xs bg-zinc-800 px-2 py-1 rounded text-zinc-400 font-mono">

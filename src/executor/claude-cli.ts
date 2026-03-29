@@ -20,6 +20,7 @@ const OAUTH_SCOPES = [
 export interface ClaudeCliOptions {
   prompt: string;
   cwd: string;
+  additionalDirs?: string[];
   allowedTools?: string[];
   systemPrompt?: string;
   mcpConfigPath?: string;
@@ -186,6 +187,13 @@ function buildArgs(options: ClaudeCliOptions): string[] {
   // MCP config
   if (options.mcpConfigPath) {
     args.push("--mcp-config", options.mcpConfigPath);
+  }
+
+  // Additional directories (multi-repo support)
+  if (options.additionalDirs?.length) {
+    for (const dir of options.additionalDirs) {
+      args.push("--add-dir", dir);
+    }
   }
 
   // Session resume

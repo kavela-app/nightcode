@@ -4,7 +4,7 @@ export const implementStep: StepDefinition = {
   name: "implement",
   allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
   resumeFromPrevious: true,
-  buildPrompt: (task) => {
+  buildPrompt: (task, repo) => {
     let prompt = `Execute the implementation plan. Make all necessary code changes.
 
 ## Task
@@ -17,6 +17,10 @@ ${task.prompt}
 - Add comments only where the logic is non-obvious
 - Do NOT add unnecessary error handling, abstractions, or over-engineering
 - Keep changes minimal and focused on the task`;
+
+    if (task.additionalRepos.length > 0) {
+      prompt += `\n\n## Repositories\nThis task spans multiple repositories:\n- ${repo.name} (primary)\n${task.additionalRepos.map(r => `- ${r.name}`).join('\n')}\n\nAll repos are available. Consider cross-repo dependencies.`;
+    }
 
     if (task.notes) {
       prompt += `\n\n## Developer Notes\nThe developer noted:\n${task.notes}\n\nIncorporate this feedback into your implementation.`;

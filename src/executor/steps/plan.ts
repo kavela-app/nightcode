@@ -25,6 +25,10 @@ Provide a structured plan with:
 - **Risks**: Potential issues or breaking changes
 - **Testing strategy**: How to verify the changes work`;
 
+    if (task.additionalRepos.length > 0) {
+      prompt += `\n\n## Repositories\nThis task spans multiple repositories:\n- ${repo.name} (primary)\n${task.additionalRepos.map(r => `- ${r.name}`).join('\n')}\n\nAll repos are available. Consider cross-repo dependencies.`;
+    }
+
     if (task.notes) {
       prompt += `\n\n## Developer Notes\nThe developer has provided these additional notes:\n${task.notes}`;
     }

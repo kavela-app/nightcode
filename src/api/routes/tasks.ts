@@ -16,6 +16,7 @@ const createTaskSchema = z.object({
   notes: z.string().optional(),
   scheduleId: z.number().int().positive().optional(),
   parentTaskId: z.number().int().positive().optional(),
+  additionalRepoIds: z.array(z.number().int().positive()).optional(),
 });
 
 export function createTaskRoutes(executor: ExecutorPool) {
@@ -149,7 +150,16 @@ export function createTaskRoutes(executor: ExecutorPool) {
     const subtasks = db.select().from(schema.tasks)
       .where(eq(schema.tasks.parentTaskId, id)).all();
 
-    return c.json({ data: { ...task, steps, kavelaSkills, subtasks } });
+    // Resolve additional repos for display
+    let additionalRepos: any[] = [];
+    if (task.additionalRepoIds) {
+      const ids: number[] = JSON.parse(task.additionalRepoIds);
+      additionalRepos = ids.map((rid: number) =>
+        db.select().from(schema.repos).where(eq(schema.repos.id, rid)).get()
+      ).filter(Boolean);
+    }
+
+    return c.json({ data: { ...task, steps, kavelaSkills, subtasks, additionalRepos } });
   });
 
   // Create task
@@ -180,7 +190,13 @@ export function createTaskRoutes(executor: ExecutorPool) {
       return c.json({ error: { code: "NOT_FOUND", message: "Repo not found" } }, 404);
     }
 
-    const result = db.insert(schema.tasks).values(parsed.data).returning().get();
+    // Serialize additionalRepoIds array to JSON string for SQLite TEXT column
+    const insertData: any = { ...parsed.data };
+    if (insertData.additionalRepoIds) {
+      insertData.additionalRepoIds = JSON.stringify(insertData.additionalRepoIds);
+    }
+
+    const result = db.insert(schema.tasks).values(insertData).returning().get();
     return c.json({ data: result }, 201);
   });
 
@@ -309,6 +325,7 @@ ${parent.prompt}`,
       sessionId: parent.sessionId,
       scheduleId: parent.scheduleId,
       parentTaskId: parentId,
+      additionalRepoIds: parent.additionalRepoIds,
     }).returning().get();
 
     return c.json({ data: subtask }, 201);

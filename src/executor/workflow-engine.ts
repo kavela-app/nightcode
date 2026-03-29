@@ -47,6 +47,7 @@ export interface TaskContext {
   nightcodeUrl: string;
   stepResults: Record<string, string>; // step name → result summary
   kavelaSkills: string[]; // skills loaded from Kavela MCP
+  additionalRepos: { name: string; url: string }[];
 }
 
 export interface RepoContext {
@@ -91,6 +92,12 @@ export async function executeWorkflow(
   const repo = db.select().from(schema.repos).where(eq(schema.repos.id, task.repoId)).get();
   if (!repo) throw new Error(`Repo ${task.repoId} not found`);
 
+  // Load additional repos if this is a multi-repo task
+  const additionalRepoIds: number[] = task.additionalRepoIds ? JSON.parse(task.additionalRepoIds) : [];
+  const additionalRepos = additionalRepoIds.map(id =>
+    db.select().from(schema.repos).where(eq(schema.repos.id, id)).get()
+  ).filter(Boolean);
+
   const steps = WORKFLOW_STEPS[task.workflow];
   if (!steps) throw new Error(`Unknown workflow: ${task.workflow}`);
 
@@ -112,11 +119,35 @@ export async function executeWorkflow(
     });
   }
 
+  // Ensure additional repos
+  const additionalWorkDirs: Map<number, string> = new Map();
+  for (const addRepo of additionalRepos) {
+    if (addRepo) {
+      const addWorkDir = await ensureRepo(addRepo.url, config.reposDir, addRepo.name);
+      additionalWorkDirs.set(addRepo.id, addWorkDir);
+
+      // npm install in background
+      const addPkgJson = join(addWorkDir, "package.json");
+      if (existsSync(addPkgJson)) {
+        execFile("npm", ["install", "--prefer-offline"], { cwd: addWorkDir, timeout: 120_000 }, () => {});
+      }
+    }
+  }
+
   // Create or resume branch
   let branchName = task.branchName;
   if (!branchName) {
     branchName = generateBranchName(task.title);
     await createTaskBranch(workDir, repo.branch, branchName);
+    // Create same branch in additional repos
+    for (const addRepo of additionalRepos) {
+      const addWorkDir = additionalWorkDirs.get(addRepo!.id);
+      if (addWorkDir && addRepo) {
+        await createTaskBranch(addWorkDir, addRepo.branch, branchName).catch(err => {
+          log.warn({ repoId: addRepo.id, error: err.message }, "Failed to create branch in additional repo");
+        });
+      }
+    }
     db.update(schema.tasks)
       .set({ branchName, status: "running", startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
       .where(eq(schema.tasks.id, taskId))
@@ -201,6 +232,7 @@ export async function executeWorkflow(
         return row ? JSON.parse(row.value) : [];
       } catch { return []; }
     })(),
+    additionalRepos: additionalRepos.map(r => ({ name: r!.name, url: r!.url })),
   };
 
   const repoContext: RepoContext = {
@@ -264,6 +296,7 @@ export async function executeWorkflow(
       sessionId,
       mcpConfigPath,
       config,
+      additionalWorkDirs,
       (msg) => onMessage?.(taskId, stepDef.name, msg),
       abortSignal,
     );
@@ -324,6 +357,7 @@ async function executeStep(
   prevSessionId: string | null,
   mcpConfigPath: string | null,
   config: NightcodeConfig,
+  additionalWorkDirs: Map<number, string>,
   onMessage?: (msg: ClaudeStreamMessage) => void,
   abortSignal?: AbortSignal,
 ): Promise<void> {
@@ -378,6 +412,7 @@ async function executeStep(
       {
         prompt,
         cwd: workDir,
+        additionalDirs: [...additionalWorkDirs.values()],
         allowedTools: stepDef.allowedTools,
         systemPrompt,
         mcpConfigPath: mcpConfigPath || undefined,
@@ -446,11 +481,18 @@ async function executeStep(
 
     // Extract PR URL if this was the PR step
     if (stepDef.name === "pr") {
-      const prUrl = extractPrUrl(result.messages);
-      if (prUrl) {
-        const prNumber = parseInt(prUrl.split("/").pop() || "0", 10);
+      // Extract all PR URLs (multi-repo support)
+      const allPrUrls = extractAllPrUrls(result.messages);
+      if (allPrUrls.length > 0) {
+        const primaryPrUrl = allPrUrls[0];
+        const prNumber = parseInt(primaryPrUrl.split("/").pop() || "0", 10);
         db.update(schema.tasks)
-          .set({ prUrl, prNumber: prNumber || null, updatedAt: new Date().toISOString() })
+          .set({
+            prUrl: primaryPrUrl,
+            prNumber: prNumber || null,
+            additionalPrUrls: allPrUrls.length > 1 ? JSON.stringify(allPrUrls.slice(1)) : null,
+            updatedAt: new Date().toISOString(),
+          })
           .where(eq(schema.tasks.id, taskId))
           .run();
       }
@@ -545,6 +587,19 @@ function extractKavelaSkills(messages: ClaudeStreamMessage[]): string[] {
     }
   }
   return [...new Set(skills)];
+}
+
+function extractAllPrUrls(messages: ClaudeStreamMessage[]): string[] {
+  const PR_RE = /https:\/\/github\.com\/[^\s)"'\\]+\/pull\/\d+/g;
+  const urls = new Set<string>();
+  for (const msg of messages) {
+    const blob = JSON.stringify(msg);
+    const matches = blob.matchAll(PR_RE);
+    for (const match of matches) {
+      urls.add(match[0]);
+    }
+  }
+  return [...urls];
 }
 
 function extractPrUrl(messages: ClaudeStreamMessage[]): string | null {

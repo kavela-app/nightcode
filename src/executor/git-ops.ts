@@ -221,6 +221,37 @@ export async function checkoutExistingBranch(
   }
 }
 
+/**
+ * Ensure multiple repos are cloned and up to date.
+ */
+export async function ensureMultipleRepos(
+  repos: { id: number; url: string; name: string }[],
+  reposDir: string,
+): Promise<Map<number, string>> {
+  const workDirs = new Map<number, string>();
+  for (const repo of repos) {
+    const workDir = await ensureRepo(repo.url, reposDir, repo.name);
+    workDirs.set(repo.id, workDir);
+  }
+  return workDirs;
+}
+
+/**
+ * Create a branch in multiple repos.
+ */
+export async function createBranchInAll(
+  workDirs: Map<number, string>,
+  repos: { id: number; branch: string }[],
+  branchName: string,
+): Promise<void> {
+  for (const repo of repos) {
+    const workDir = workDirs.get(repo.id);
+    if (workDir) {
+      await createTaskBranch(workDir, repo.branch, branchName);
+    }
+  }
+}
+
 async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, {
     cwd,

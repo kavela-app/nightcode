@@ -138,6 +138,8 @@ function runMigrations(sqlite: Database.Database) {
   try { sqlite.exec("ALTER TABLE schedules ADD COLUMN window_end TEXT"); } catch {}
   try { sqlite.exec("ALTER TABLE tasks ADD COLUMN schedule_id INTEGER REFERENCES schedules(id) ON DELETE SET NULL"); } catch {}
   try { sqlite.exec("ALTER TABLE tasks ADD COLUMN parent_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL"); } catch {}
+  try { sqlite.exec("ALTER TABLE tasks ADD COLUMN additional_repo_ids TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE tasks ADD COLUMN additional_pr_urls TEXT"); } catch {}
 }
 
 export { schema };

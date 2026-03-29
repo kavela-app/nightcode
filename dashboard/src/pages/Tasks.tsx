@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Task, type Repo, type Schedule } from "../api/client";
+import { api, type Task, type Repo, type Schedule, type CreateTaskInput } from "../api/client";
 
 const statusBadge: Record<string, string> = {
   pending: "bg-zinc-700 text-zinc-300",
@@ -19,6 +19,7 @@ export default function Tasks() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
     repoId: 0,
+    additionalRepoIds: [] as number[],
     title: "",
     prompt: "",
     workflow: "plan-implement-pr",
@@ -57,18 +58,22 @@ export default function Tasks() {
       repoId = res.data.id;
     }
 
-    await api.createTask({
+    const taskData: CreateTaskInput = {
       repoId,
       title: form.title,
       prompt: form.prompt,
       workflow: form.workflow,
       priority: form.priority,
       scheduleId: form.scheduleId || undefined,
-    });
+    };
+    if (form.additionalRepoIds.length > 0) {
+      taskData.additionalRepoIds = form.additionalRepoIds;
+    }
+    await api.createTask(taskData);
     setShowCreate(false);
     setCreatingRepo(false);
     setNewRepo({ name: "", url: "", branch: "main" });
-    setForm((f) => ({ ...f, title: "", prompt: "" }));
+    setForm((f) => ({ ...f, title: "", prompt: "", additionalRepoIds: [] }));
     load();
   }
 
@@ -164,6 +169,44 @@ export default function Tasks() {
             </div>
           )}
 
+          {/* Additional repos */}
+          {form.additionalRepoIds.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {form.additionalRepoIds.map(rid => {
+                const r = repos.find(r => r.id === rid);
+                return r ? (
+                  <span key={rid} className="inline-flex items-center gap-1 text-xs bg-zinc-700 text-zinc-300 px-2 py-0.5 rounded">
+                    {r.name}
+                    <button
+                      type="button"
+                      onClick={() => setForm({...form, additionalRepoIds: form.additionalRepoIds.filter(id => id !== rid)})}
+                      className="text-zinc-500 hover:text-zinc-200"
+                    >
+                      x
+                    </button>
+                  </span>
+                ) : null;
+              })}
+            </div>
+          )}
+          {repos.filter(r => r.id !== form.repoId && r.id !== 0 && !form.additionalRepoIds.includes(r.id)).length > 0 && (
+            <select
+              value=""
+              onChange={(e) => {
+                const id = Number(e.target.value);
+                if (id > 0) {
+                  setForm({...form, additionalRepoIds: [...form.additionalRepoIds, id]});
+                }
+              }}
+              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-400"
+            >
+              <option value="">+ Add another repo</option>
+              {repos.filter(r => r.id !== form.repoId && r.id !== 0 && !form.additionalRepoIds.includes(r.id)).map(r => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          )}
+
           {/* Schedule dropdown */}
           <select
             value={form.scheduleId}
@@ -236,6 +279,11 @@ export default function Tasks() {
                   {scheduleName && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-purple-900/40 text-purple-300">
                       {scheduleName}
+                    </span>
+                  )}
+                  {task.additionalRepoIds && task.additionalRepoIds.length > 0 && (
+                    <span className="text-[10px] bg-blue-900/30 text-blue-400 px-1.5 py-0.5 rounded">
+                      {1 + task.additionalRepoIds.length} repos
                     </span>
                   )}
                   {task.currentStep && (
