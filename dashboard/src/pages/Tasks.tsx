@@ -17,6 +17,7 @@ export default function Tasks() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [filter, setFilter] = useState<string>("all");
   const [form, setForm] = useState({
     repoId: 0,
     additionalRepoIds: [] as number[],
@@ -252,6 +253,26 @@ export default function Tasks() {
         </form>
       )}
 
+      {/* Filter bar */}
+      <div className="flex gap-1.5 mb-4 flex-wrap">
+        {["all", "pending", "queued", "running", "completed", "failed"].map(s => (
+          <button
+            key={s}
+            onClick={() => setFilter(s)}
+            className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
+              filter === s
+                ? "bg-blue-600 text-white"
+                : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            {s === "all" ? "All" : s.charAt(0).toUpperCase() + s.slice(1)}
+            <span className="ml-1 text-zinc-500">
+              {s === "all" ? tasks.length : tasks.filter(t => t.status === s).length}
+            </span>
+          </button>
+        ))}
+      </div>
+
       {/* Task list */}
       <div className="space-y-2">
         {tasks.length === 0 && (
@@ -259,7 +280,16 @@ export default function Tasks() {
             No tasks yet. Create one to get started.
           </p>
         )}
-        {tasks.map((task) => {
+        {(() => {
+          const filteredTasks = filter === "all" ? tasks : tasks.filter(t => t.status === filter);
+          const sortOrder: Record<string, number> = { running: 0, queued: 1, pending: 2, failed: 3, paused: 4, completed: 5, cancelled: 6 };
+          const sortedTasks = [...filteredTasks].sort((a, b) => {
+            const orderDiff = (sortOrder[a.status] ?? 9) - (sortOrder[b.status] ?? 9);
+            if (orderDiff !== 0) return orderDiff;
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          });
+          return sortedTasks;
+        })().map((task) => {
           const scheduleName = getScheduleName(task.scheduleId);
           return (
             <div
@@ -281,11 +311,24 @@ export default function Tasks() {
                       {scheduleName}
                     </span>
                   )}
-                  {task.additionalRepoIds && task.additionalRepoIds.length > 0 && (
-                    <span className="text-[10px] bg-blue-900/30 text-blue-400 px-1.5 py-0.5 rounded">
-                      {1 + task.additionalRepoIds.length} repos
-                    </span>
-                  )}
+                  {(() => {
+                    const repo = repos.find(r => r.id === task.repoId);
+                    return repo ? (
+                      <span className="text-[10px] bg-zinc-800 text-zinc-500 px-1.5 py-0.5 rounded font-mono">
+                        {repo.name}
+                      </span>
+                    ) : null;
+                  })()}
+                  {task.additionalRepoIds && (() => {
+                    try {
+                      const ids = typeof task.additionalRepoIds === 'string' ? JSON.parse(task.additionalRepoIds) : task.additionalRepoIds;
+                      return ids.length > 0 ? (
+                        <span className="text-[10px] bg-blue-900/30 text-blue-400 px-1.5 py-0.5 rounded">
+                          +{ids.length} repo{ids.length > 1 ? "s" : ""}
+                        </span>
+                      ) : null;
+                    } catch { return null; }
+                  })()}
                   {task.currentStep && (
                     <span className="text-xs text-zinc-500">
                       step: {task.currentStep}
@@ -341,6 +384,18 @@ export default function Tasks() {
                     className="text-xs bg-red-900/30 text-red-400 hover:bg-red-900/50 px-2 py-1 rounded"
                   >
                     Cancel
+                  </button>
+                )}
+                {task.status !== "running" && task.status !== "queued" && (
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Delete task "${task.title}"?`)) return;
+                      await api.deleteTask(task.id);
+                      load();
+                    }}
+                    className="text-xs bg-zinc-800 text-zinc-500 hover:text-red-400 px-2 py-1 rounded"
+                  >
+                    Delete
                   </button>
                 )}
               </div>
