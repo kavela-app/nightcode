@@ -325,6 +325,57 @@ CRITICAL RULES:
     setNewWorkflowSteps("");
   }
 
+  // New custom step state
+  const [newStepName, setNewStepName] = useState("");
+
+  async function addCustomStep() {
+    const name = newStepName.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    if (!name || DEFAULT_STEPS[name] || customSteps[name]) return;
+    const updated = { ...customSteps };
+    updated[name] = {
+      prompt: `## Task\n{{task.prompt}}\n\n## Instructions\nDescribe what this step should do.`,
+      systemPrompt: "You are performing a custom step.",
+      allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
+      resumeFromPrevious: true,
+    };
+    setCustomSteps(updated);
+    try {
+      await api.updateSettings({ custom_steps: JSON.stringify(updated) });
+    } catch {}
+    setNewStepName("");
+    startEditingStep(name);
+  }
+
+  async function deleteStep(name: string) {
+    // Remove from custom steps
+    const updatedSteps = { ...customSteps };
+    delete updatedSteps[name];
+    setCustomSteps(updatedSteps);
+
+    // Remove from all workflows that reference this step
+    const updatedWorkflows = { ...customWorkflows };
+    for (const [wfName, steps] of Object.entries(updatedWorkflows)) {
+      const filtered = steps.filter(s => s !== name);
+      if (filtered.length !== steps.length) {
+        if (filtered.length === 0) {
+          delete updatedWorkflows[wfName];
+        } else {
+          updatedWorkflows[wfName] = filtered;
+        }
+      }
+    }
+    setCustomWorkflows(updatedWorkflows);
+
+    if (editingStep === name) setEditingStep(null);
+
+    try {
+      await api.updateSettings({
+        custom_steps: Object.keys(updatedSteps).length > 0 ? JSON.stringify(updatedSteps) : "",
+        custom_workflows: Object.keys(updatedWorkflows).length > 0 ? JSON.stringify(updatedWorkflows) : "",
+      });
+    } catch {}
+  }
+
   async function deleteCustomWorkflow(name: string) {
     const updated = { ...customWorkflows };
     delete updated[name];
@@ -964,21 +1015,40 @@ CRITICAL RULES:
                   Edit built-in step prompts or create new custom steps. Placeholders: {"{{task.prompt}}"}, {"{{task.title}}"}, {"{{repo.name}}"}, {"{{repo.branch}}"}, {"{{task.branchName}}"}
                 </p>
                 <div className="space-y-2">
-                  {Object.keys(DEFAULT_STEPS).map(name => (
-                    <div key={name} className="border border-zinc-800 rounded-lg">
+                  {/* All steps: built-in + custom-only */}
+                  {[...Object.keys(DEFAULT_STEPS), ...Object.keys(customSteps).filter(n => !DEFAULT_STEPS[n])].map(name => {
+                    const isBuiltIn = !!DEFAULT_STEPS[name];
+                    const isCustomized = !!customSteps[name];
+                    return (
+                    <div key={name} className="border border-zinc-800 rounded-lg group">
                       <div className="flex items-center justify-between px-3 py-2">
                         <div className="flex items-center gap-2">
                           <span className="text-sm text-zinc-300 font-mono">{name}</span>
-                          {customSteps[name] && (
+                          {isBuiltIn && isCustomized && (
                             <span className="text-[10px] bg-blue-900/30 text-blue-400 px-1.5 py-0.5 rounded">customized</span>
                           )}
+                          {!isBuiltIn && (
+                            <span className="text-[10px] bg-green-900/30 text-green-400 px-1.5 py-0.5 rounded">custom</span>
+                          )}
                         </div>
-                        <button
-                          onClick={() => editingStep === name ? setEditingStep(null) : startEditingStep(name)}
-                          className="text-xs text-zinc-500 hover:text-zinc-300"
-                        >
-                          {editingStep === name ? "Close" : "Edit"}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => editingStep === name ? setEditingStep(null) : startEditingStep(name)}
+                            className="text-xs text-zinc-500 hover:text-zinc-300"
+                          >
+                            {editingStep === name ? "Close" : "Edit"}
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Delete step "${name}"? It will be removed from all workflows.`)) {
+                                deleteStep(name);
+                              }
+                            }}
+                            className="text-xs text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
 
                       {editingStep === name && (
@@ -1050,7 +1120,29 @@ CRITICAL RULES:
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
+
+                  {/* Add new custom step */}
+                  <div className="border border-dashed border-zinc-700 rounded-lg px-3 py-2">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newStepName}
+                        onChange={(e) => setNewStepName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") addCustomStep(); }}
+                        placeholder="new-step-name"
+                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-zinc-600"
+                      />
+                      <button
+                        onClick={addCustomStep}
+                        disabled={!newStepName.trim()}
+                        className="text-xs bg-zinc-700 hover:bg-zinc-600 text-zinc-300 px-3 py-1 rounded disabled:opacity-50"
+                      >
+                        + Add Step
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
