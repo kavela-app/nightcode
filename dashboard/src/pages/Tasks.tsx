@@ -28,6 +28,7 @@ export default function Tasks() {
     scheduleId: 0,
     recurring: false,
   });
+  const [customWorkflows, setCustomWorkflows] = useState<string[]>([]);
   const [creatingRepo, setCreatingRepo] = useState(false);
   const [newRepo, setNewRepo] = useState({ name: "", url: "", branch: "main" });
 
@@ -36,7 +37,12 @@ export default function Tasks() {
   }, []);
 
   async function load() {
-    const [t, r, s] = await Promise.all([api.getTasks(), api.getRepos(), api.getSchedules()]);
+    const [t, r, s, settings] = await Promise.all([
+      api.getTasks(),
+      api.getRepos(),
+      api.getSchedules(),
+      api.getSettings().catch(() => ({ data: {} as Record<string, string> })),
+    ]);
     setTasks(t.data);
     setRepos(r.data);
     setSchedules(s.data);
@@ -47,6 +53,15 @@ export default function Tasks() {
     const activeSchedules = s.data.filter((sch) => sch.enabled);
     if (activeSchedules.length === 1) {
       setForm((f) => ({ ...f, scheduleId: activeSchedules[0].id }));
+    }
+    // Load custom workflows
+    if (settings.data?.custom_workflows) {
+      try {
+        const custom = JSON.parse(settings.data.custom_workflows);
+        setCustomWorkflows(Object.keys(custom).filter(
+          (k) => !["implement-pr", "plan-implement-pr", "plan-audit-implement-pr"].includes(k)
+        ));
+      } catch { /* ignore */ }
     }
   }
 
@@ -140,6 +155,9 @@ export default function Tasks() {
               <option value="implement-pr">Quick (implement + PR)</option>
               <option value="plan-implement-pr">Standard (plan + implement + PR)</option>
               <option value="plan-audit-implement-pr">Thorough (plan + audit + implement + test + PR)</option>
+              {customWorkflows.map(name => (
+                <option key={name} value={name}>{name} (custom)</option>
+              ))}
             </select>
           </div>
 

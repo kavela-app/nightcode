@@ -73,6 +73,79 @@ const WORKFLOW_STEPS: Record<string, StepDefinition[]> = {
   ],
 };
 
+const BUILT_IN_STEPS: Record<string, StepDefinition> = {
+  plan: planStep,
+  audit: auditStep,
+  implement: implementStep,
+  test: testStep,
+  pr: prStep,
+};
+
+/**
+ * Look up a single step definition, checking for custom overrides in the DB first.
+ */
+function getStepDefinition(stepName: string, db: ReturnType<typeof getDb>): StepDefinition {
+  const customStepsRow = db.select().from(schema.settings).where(eq(schema.settings.key, "custom_steps")).get();
+  if (customStepsRow) {
+    try {
+      const customSteps = JSON.parse(customStepsRow.value);
+      if (customSteps[stepName]) {
+        const custom = customSteps[stepName];
+        return {
+          name: stepName,
+          allowedTools: custom.allowedTools || ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
+          resumeFromPrevious: custom.resumeFromPrevious ?? true,
+          buildPrompt: (task, repo) => {
+            let prompt = (custom.prompt || "")
+              .replace(/\{\{task\.prompt\}\}/g, task.prompt)
+              .replace(/\{\{task\.title\}\}/g, task.title)
+              .replace(/\{\{task\.branchName\}\}/g, task.branchName || "")
+              .replace(/\{\{repo\.name\}\}/g, repo.name)
+              .replace(/\{\{repo\.branch\}\}/g, repo.branch);
+            if (task.notes) prompt += `\n\n## Developer Notes\n${task.notes}`;
+            if (task.additionalRepos.length > 0) {
+              prompt += `\n\n## Repositories\n- ${repo.name} (primary)\n${task.additionalRepos.map(r => `- ${r.name}`).join('\n')}`;
+            }
+            return prompt;
+          },
+          systemPrompt: (repo) => {
+            let sys = custom.systemPrompt || "";
+            if (repo.systemPrompt) sys = `${repo.systemPrompt}\n\n${sys}`;
+            return sys;
+          },
+        };
+      }
+    } catch { /* invalid JSON, fall through */ }
+  }
+
+  return BUILT_IN_STEPS[stepName] || implementStep;
+}
+
+/**
+ * Resolve the step list for a workflow. Checks for custom workflow definitions
+ * in the DB first, then falls back to built-in workflows.
+ */
+function getWorkflowSteps(workflow: string, db: ReturnType<typeof getDb>): StepDefinition[] {
+  // Check for custom workflow first
+  const customWorkflowsRow = db.select().from(schema.settings).where(eq(schema.settings.key, "custom_workflows")).get();
+  if (customWorkflowsRow) {
+    try {
+      const customWorkflows = JSON.parse(customWorkflowsRow.value);
+      if (customWorkflows[workflow]) {
+        return customWorkflows[workflow].map((stepName: string) => getStepDefinition(stepName, db));
+      }
+    } catch { /* invalid JSON, fall through */ }
+  }
+
+  // Check if any built-in workflow steps have custom overrides
+  if (WORKFLOW_STEPS[workflow]) {
+    return WORKFLOW_STEPS[workflow].map(step => getStepDefinition(step.name, db));
+  }
+
+  // Default fallback
+  return WORKFLOW_STEPS["plan-implement-pr"].map(step => getStepDefinition(step.name, db));
+}
+
 /**
  * Execute a full task workflow: creates branch, runs each step sequentially,
  * creates PR at the end.
@@ -98,8 +171,7 @@ export async function executeWorkflow(
     db.select().from(schema.repos).where(eq(schema.repos.id, id)).get()
   ).filter(Boolean);
 
-  const steps = WORKFLOW_STEPS[task.workflow];
-  if (!steps) throw new Error(`Unknown workflow: ${task.workflow}`);
+  const steps = getWorkflowSteps(task.workflow, db);
 
   log.info(
     { taskId, workflow: task.workflow, steps: steps.map((s) => s.name) },

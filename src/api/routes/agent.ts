@@ -67,13 +67,26 @@ function gatherState() {
     .slice(0, 5);
   const failedTasks = tasks.filter((t) => t.status === "failed").slice(-5);
 
-  return { repos, tasks, schedules, runningTasks, recentCompleted, failedTasks };
+  // Load custom workflows
+  let customWorkflowNames: string[] = [];
+  const customWorkflowsRow = db.select().from(schema.settings).where(eq(schema.settings.key, "custom_workflows")).get();
+  if (customWorkflowsRow) {
+    try {
+      customWorkflowNames = Object.keys(JSON.parse(customWorkflowsRow.value));
+    } catch { /* ignore */ }
+  }
+
+  return { repos, tasks, schedules, runningTasks, recentCompleted, failedTasks, customWorkflowNames };
 }
 
 function buildSystemPrompt(state: ReturnType<typeof gatherState>): string {
   const repoList = state.repos.map((r) => `  - id=${r.id} name="${r.name}" url="${r.url}" branch="${r.branch}"`).join("\n");
   const runningList = state.runningTasks.map((t) => `  - id=${t.id} repo_id=${t.repoId} title="${t.title}" status=${t.status}`).join("\n");
   const scheduleList = state.schedules.map((s) => `  - id=${s.id} name="${s.name}" cron="${s.cronExpr}" enabled=${s.enabled}`).join("\n");
+
+  const builtInWorkflows = ["implement-pr", "plan-implement-pr", "plan-audit-implement-pr"];
+  const allWorkflows = [...builtInWorkflows, ...state.customWorkflowNames.filter(w => !builtInWorkflows.includes(w))];
+  const workflowOptions = allWorkflows.map(w => `"${w}"`).join("|");
 
   return `You are the nightcode agent. You parse natural-language requests into structured actions.
 
@@ -87,13 +100,15 @@ ${runningList || "  (none)"}
 Schedules (${state.schedules.length}):
 ${scheduleList || "  (none)"}
 
+Available workflows: ${allWorkflows.join(", ")}${state.customWorkflowNames.length > 0 ? ` (custom: ${state.customWorkflowNames.filter(w => !builtInWorkflows.includes(w)).join(", ")})` : ""}
+
 Total tasks: ${state.tasks.length} | Completed: ${state.tasks.filter((t) => t.status === "completed").length} | Failed: ${state.tasks.filter((t) => t.status === "failed").length}
 
 AVAILABLE ACTIONS:
 - create_repo: { "name": string, "url": string, "branch"?: string }
 - list_repos: {}
 - delete_repo: { "repo_id": number }
-- create_task: { "repo_id": number, "title": string, "prompt": string, "workflow"?: "implement-pr"|"plan-implement-pr"|"plan-audit-implement-pr", "priority"?: 1-10, "additional_repo_ids"?: number[], "recurring"?: boolean }
+- create_task: { "repo_id": number, "title": string, "prompt": string, "workflow"?: ${workflowOptions}, "priority"?: 1-10, "additional_repo_ids"?: number[], "recurring"?: boolean }
 - run_task: { "task_id": number }
 - pause_task: { "task_id": number }
 - cancel_task: { "task_id": number }
