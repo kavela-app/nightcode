@@ -52,7 +52,17 @@ export async function ensureRepo(
 
   if (existsSync(join(workDir, ".git"))) {
     log.info({ workDir }, "Repo exists, fetching latest");
-    await git(workDir, ["fetch", "--all", "--prune"]);
+    // Retry fetch up to 3 times (transient DNS/network failures)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await git(workDir, ["fetch", "--all", "--prune"]);
+        break;
+      } catch (err) {
+        if (attempt === 3) throw err;
+        log.warn({ workDir, attempt, error: (err as Error).message }, "git fetch failed, retrying in 5s");
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
   } else {
     log.info({ url: effectiveUrl, workDir }, "Cloning repo");
     await execFileAsync("git", ["clone", effectiveUrl, workDir], {
