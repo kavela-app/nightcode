@@ -31,6 +31,7 @@ export default function Tasks() {
   const [customWorkflows, setCustomWorkflows] = useState<string[]>([]);
   const [creatingRepo, setCreatingRepo] = useState(false);
   const [newRepo, setNewRepo] = useState({ name: "", url: "", branch: "main" });
+  const [createError, setCreateError] = useState("");
 
   useEffect(() => {
     load();
@@ -67,38 +68,47 @@ export default function Tasks() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    let repoId = form.repoId;
+    setCreateError("");
+    try {
+      let repoId = form.repoId;
 
-    // If creating a new repo inline, create it first
-    if (creatingRepo) {
-      const res = await api.createRepo({ name: newRepo.name, url: newRepo.url, branch: newRepo.branch });
-      repoId = res.data.id;
-    }
+      // If creating a new repo inline, create it first
+      if (creatingRepo) {
+        const res = await api.createRepo({ name: newRepo.name, url: newRepo.url, branch: newRepo.branch });
+        repoId = res.data.id;
+      }
 
-    const taskData: CreateTaskInput = {
-      repoId,
-      title: form.title,
-      prompt: form.prompt,
-      workflow: form.workflow,
-      priority: form.priority,
-      scheduleId: form.scheduleId || undefined,
-      recurring: form.recurring || undefined,
-    };
-    if (form.additionalRepoIds.length > 0) {
-      taskData.additionalRepoIds = form.additionalRepoIds;
+      const taskData: CreateTaskInput = {
+        repoId,
+        title: form.title,
+        prompt: form.prompt,
+        workflow: form.workflow,
+        priority: form.priority,
+        scheduleId: form.scheduleId || undefined,
+        recurring: form.recurring || undefined,
+      };
+      if (form.additionalRepoIds.length > 0) {
+        taskData.additionalRepoIds = form.additionalRepoIds;
+      }
+      await api.createTask(taskData);
+      setShowCreate(false);
+      setCreatingRepo(false);
+      setNewRepo({ name: "", url: "", branch: "main" });
+      setForm((f) => ({ ...f, title: "", prompt: "", additionalRepoIds: [] }));
+      load();
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create task");
     }
-    await api.createTask(taskData);
-    setShowCreate(false);
-    setCreatingRepo(false);
-    setNewRepo({ name: "", url: "", branch: "main" });
-    setForm((f) => ({ ...f, title: "", prompt: "", additionalRepoIds: [] }));
-    load();
   }
 
   async function handleAction(id: number, action: "run" | "pause" | "cancel") {
-    if (action === "run") await api.runTask(id);
-    else if (action === "pause") await api.pauseTask(id);
-    else await api.cancelTask(id);
+    try {
+      if (action === "run") await api.runTask(id);
+      else if (action === "pause") await api.pauseTask(id);
+      else await api.cancelTask(id);
+    } catch {
+      // Reload to get fresh state regardless
+    }
     load();
   }
 
@@ -264,10 +274,11 @@ export default function Tasks() {
             />
             Recurring — re-create after completion
           </label>
+          {createError && <p className="text-xs text-red-400">{createError}</p>}
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => { setShowCreate(false); setCreatingRepo(false); }}
+              onClick={() => { setShowCreate(false); setCreatingRepo(false); setCreateError(""); }}
               className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200"
             >
               Cancel

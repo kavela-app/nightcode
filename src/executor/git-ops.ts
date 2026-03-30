@@ -156,7 +156,19 @@ export async function createPr(
     { cwd: workDir, timeout: 30_000 },
   );
 
-  const pr = JSON.parse(result.stdout);
+  let pr;
+  try {
+    pr = JSON.parse(result.stdout);
+  } catch {
+    // gh pr create may return just a URL without --json flag
+    const urlMatch = result.stdout.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/);
+    if (urlMatch) {
+      const num = parseInt(urlMatch[0].split("/").pop() || "0", 10);
+      pr = { url: urlMatch[0], number: num };
+    } else {
+      throw new Error(`Failed to parse PR creation output: ${result.stdout.slice(0, 200)}`);
+    }
+  }
   log.info({ url: pr.url, number: pr.number }, "PR created");
   return pr;
 }

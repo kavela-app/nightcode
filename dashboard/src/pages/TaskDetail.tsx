@@ -277,8 +277,12 @@ export default function TaskDetail() {
 
   async function load() {
     if (!id) return;
-    const res = await api.getTask(parseInt(id, 10));
-    setTask(res.data);
+    try {
+      const res = await api.getTask(parseInt(id, 10));
+      setTask(res.data);
+    } catch {
+      // Don't clear task data on error — keep showing last known state
+    }
   }
 
   async function handleRefine() {
@@ -299,17 +303,25 @@ export default function TaskDetail() {
 
   async function handleExport() {
     if (!id) return;
-    const res = await api.exportTask(parseInt(id, 10));
-    setExportMd(res.data.markdown);
+    try {
+      const res = await api.exportTask(parseInt(id, 10));
+      setExportMd(res.data.markdown);
+    } catch {
+      // Export failed silently — user can retry
+    }
   }
 
   async function handleAction(action: "run" | "pause" | "resume" | "cancel") {
     if (!id) return;
     const taskId = parseInt(id, 10);
-    if (action === "run") await api.runTask(taskId);
-    else if (action === "pause") await api.pauseTask(taskId);
-    else if (action === "resume") await api.resumeTask(taskId);
-    else await api.cancelTask(taskId);
+    try {
+      if (action === "run") await api.runTask(taskId);
+      else if (action === "pause") await api.pauseTask(taskId);
+      else if (action === "resume") await api.resumeTask(taskId);
+      else await api.cancelTask(taskId);
+    } catch {
+      // Action may have failed — reload to get fresh state
+    }
     load();
   }
 

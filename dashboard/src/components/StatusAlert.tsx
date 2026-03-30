@@ -8,6 +8,8 @@ export default function StatusAlert() {
 
   useEffect(() => {
     checkStatus();
+    const interval = setInterval(checkStatus, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   async function checkStatus() {

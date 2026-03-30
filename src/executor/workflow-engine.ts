@@ -166,7 +166,8 @@ export async function executeWorkflow(
   if (!repo) throw new Error(`Repo ${task.repoId} not found`);
 
   // Load additional repos if this is a multi-repo task
-  const additionalRepoIds: number[] = task.additionalRepoIds ? JSON.parse(task.additionalRepoIds) : [];
+  let additionalRepoIds: number[] = [];
+  try { additionalRepoIds = task.additionalRepoIds ? JSON.parse(task.additionalRepoIds) : []; } catch { additionalRepoIds = []; }
   const additionalRepos = additionalRepoIds.map(id =>
     db.select().from(schema.repos).where(eq(schema.repos.id, id)).get()
   ).filter(Boolean);

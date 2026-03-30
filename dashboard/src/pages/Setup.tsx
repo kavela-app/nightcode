@@ -670,7 +670,7 @@ export default function Setup({ onComplete }: SetupProps) {
                     type="text"
                     placeholder="kav_xxxxx"
                     value={kavelaKey}
-                    onChange={(e) => setKavelaKey(e.target.value)}
+                    onChange={(e) => { setKavelaKey(e.target.value); setKavelaResult(null); }}
                     className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-zinc-600"
                   />
                   <button
@@ -740,9 +740,10 @@ export default function Setup({ onComplete }: SetupProps) {
                     type="text"
                     placeholder="my-api"
                     value={repoForm.name}
-                    onChange={(e) =>
-                      setRepoForm({ ...repoForm, name: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setRepoForm({ ...repoForm, name: e.target.value });
+                      setRepoError("");
+                    }}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-zinc-600"
                   />
                 </div>
@@ -754,9 +755,10 @@ export default function Setup({ onComplete }: SetupProps) {
                     type="text"
                     placeholder="git@github.com:org/repo.git"
                     value={repoForm.url}
-                    onChange={(e) =>
-                      setRepoForm({ ...repoForm, url: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setRepoForm({ ...repoForm, url: e.target.value });
+                      setRepoError("");
+                    }}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-zinc-600"
                   />
                 </div>
@@ -768,9 +770,10 @@ export default function Setup({ onComplete }: SetupProps) {
                     type="text"
                     placeholder="main"
                     value={repoForm.branch}
-                    onChange={(e) =>
-                      setRepoForm({ ...repoForm, branch: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setRepoForm({ ...repoForm, branch: e.target.value });
+                      setRepoError("");
+                    }}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-zinc-600"
                   />
                 </div>

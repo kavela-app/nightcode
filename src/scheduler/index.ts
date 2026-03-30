@@ -180,6 +180,14 @@ export class Scheduler {
           },
           "Failed to trigger schedule",
         );
+        // Still advance nextRun to prevent infinite retry loop
+        const nextRun = this.computeNextRun(schedule);
+        if (nextRun) {
+          db.update(schema.schedules)
+            .set({ nextRun, updatedAt: new Date().toISOString() })
+            .where(eq(schema.schedules.id, schedule.id))
+            .run();
+        }
       }
     }
   }
@@ -190,13 +198,19 @@ export class Scheduler {
     if (!schedule.taskTemplate) return [];
 
     const db = getDb();
-    const template = JSON.parse(schedule.taskTemplate) as {
-      repoId: number;
-      title: string;
-      prompt: string;
-      workflow?: string;
-      priority?: number;
-    };
+    let template;
+    try {
+      template = JSON.parse(schedule.taskTemplate) as {
+        repoId: number;
+        title: string;
+        prompt: string;
+        workflow?: string;
+        priority?: number;
+      };
+    } catch {
+      log.error({ scheduleId: schedule.id }, "Invalid task template JSON, skipping");
+      return [];
+    }
 
     const result = db
       .insert(schema.tasks)
