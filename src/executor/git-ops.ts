@@ -89,6 +89,10 @@ export async function createTaskBranch(
 ): Promise<void> {
   log.info({ baseBranch, branchName }, "Creating task branch");
 
+  // Clean working tree before switching branches
+  await git(workDir, ["clean", "-fd"]).catch(() => {});
+  await git(workDir, ["checkout", "--", "."]).catch(() => {});
+
   // Checkout base and pull latest
   await git(workDir, ["checkout", baseBranch]);
   await git(workDir, ["pull", "origin", baseBranch]);
@@ -241,6 +245,10 @@ export async function checkoutExistingBranch(
   branchName: string,
 ): Promise<void> {
   log.info({ branchName }, "Checking out existing branch for subtask");
+  // Clean untracked files that would conflict with checkout (left over from other branches)
+  await git(workDir, ["clean", "-fd"]).catch(() => {});
+  // Reset any staged/unstaged changes
+  await git(workDir, ["checkout", "--", "."]).catch(() => {});
   await git(workDir, ["checkout", branchName]);
   try {
     await git(workDir, ["pull", "origin", branchName]);
