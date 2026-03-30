@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { createChildLogger } from "../utils/logger.js";
@@ -51,6 +51,12 @@ export async function ensureRepo(
   const effectiveUrl = maybeConvertToSsh(repoUrl);
 
   if (existsSync(join(workDir, ".git"))) {
+    // Clean up stale index.lock from crashed git processes
+    const lockFile = join(workDir, ".git", "index.lock");
+    if (existsSync(lockFile)) {
+      log.warn({ workDir }, "Removing stale .git/index.lock");
+      try { unlinkSync(lockFile); } catch {}
+    }
     log.info({ workDir }, "Repo exists, fetching latest");
     // Retry fetch up to 3 times (transient DNS/network failures)
     for (let attempt = 1; attempt <= 3; attempt++) {
